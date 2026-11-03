@@ -227,7 +227,7 @@ function SectionHeader({ title, subtitle }) {
 
 function StatTile({ label, hint, value, icon, accentClass, isText = false }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300">
       <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${accentClass}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           {icon}
@@ -337,7 +337,7 @@ function IntentFrequencyChart({ items }) {
               title={`${humanizeIntent(item.intent)}: ${item.count} inquiries`}
             >
               <div
-                className="h-full rounded-full bg-gradient-to-r from-navy to-navy-dark transition-[filter] duration-150 group-hover:brightness-125"
+                className="h-full rounded-full bg-gradient-to-r from-[rgb(var(--c-bar-from))] to-[rgb(var(--c-bar-to))] transition-[filter] duration-150 group-hover:brightness-125"
                 style={{ width: `${widthPct}%` }}
               />
             </div>
@@ -402,7 +402,7 @@ function TicketStatusDonut({ counts, total }) {
       <div className="relative h-44 w-44 shrink-0">
         {total === 0 ? (
           <svg viewBox="0 0 120 120" className="h-full w-full">
-            <circle cx="60" cy="60" r={radius} fill="none" stroke="#F3F4F6" strokeWidth="14" />
+            <circle cx="60" cy="60" r={radius} fill="none" stroke="rgb(var(--c-surface-3))" strokeWidth="14" />
           </svg>
         ) : (
           <svg viewBox="0 0 120 120" className="h-full w-full">

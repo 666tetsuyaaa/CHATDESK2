@@ -19,9 +19,12 @@ import {
   View,
 } from "react-native";
 import type { ScrollViewInstance } from "react-native";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BotAvatar } from "../../components/bot-avatar";
 import { BrandTitle } from "../../components/brand-title";
 import { NavMenu } from "../../components/nav-menu";
+import { TypingDots } from "../../components/typing-dots";
 import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -55,6 +58,7 @@ export default function StudentChatScreen() {
     offices,
     selectedOffice,
     setSelectedOffice,
+    startNewChat,
   } = useChat();
   const [followUpTicketId, setFollowUpTicketId] = useState<number | null>(null);
 
@@ -135,6 +139,16 @@ export default function StudentChatScreen() {
     sendMessage(trimmed);
   };
 
+  const handleNewChat = () => {
+    Haptics.selectionAsync().catch(() => {});
+    setMessage("");
+    startNewChat();
+  };
+
+  const canSend = message.trim().length > 0 && !isSending;
+  // Falls back to the initial when the photo URL is set but won't load.
+  const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
+
   return (
     <View style={styles.root}>
       <LinearGradient
@@ -147,43 +161,56 @@ export default function StudentChatScreen() {
           <Pressable
             onPress={() => setIsMenuOpen(true)}
             hitSlop={12}
-            style={({ pressed }) => [pressed && styles.pressedIcon]}
+            style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressedIcon]}
             accessibilityRole="button"
             accessibilityLabel="Open menu"
           >
-            <MaterialIcons name="menu" size={26} color={colors.accentText} />
+            <MaterialIcons name="menu" size={22} color={colors.accentText} />
           </Pressable>
           <BrandTitle style={styles.title} chatColor={isDark ? brandColors.white : brandColors.navy} />
-          <Pressable
-            onPress={() => router.push("/profile")}
-            hitSlop={12}
-            style={({ pressed }) => [styles.avatar, pressed && styles.pressedIcon]}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-          >
-            {currentUser?.profile_picture ? (
-              <Image source={{ uri: currentUser.profile_picture }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarText}>{userInitial}</Text>
-            )}
-          </Pressable>
+          <View style={styles.headerRight}>
+            {!isChatEmpty ? (
+              <Pressable
+                onPress={handleNewChat}
+                hitSlop={8}
+                style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressedIcon]}
+                accessibilityRole="button"
+                accessibilityLabel="Start a new chat"
+              >
+                <MaterialIcons name="edit-note" size={22} color={colors.accentText} />
+              </Pressable>
+            ) : null}
+            <Pressable
+              onPress={() => router.push("/profile")}
+              hitSlop={12}
+              style={({ pressed }) => [styles.avatar, pressed && styles.pressedIcon]}
+              accessibilityRole="button"
+              accessibilityLabel="Open profile"
+            >
+              {currentUser?.profile_picture && failedAvatarUri !== currentUser.profile_picture ? (
+                <Image
+                  source={{ uri: currentUser.profile_picture }}
+                  style={styles.avatarImage}
+                  onError={() => setFailedAvatarUri(currentUser.profile_picture ?? null)}
+                />
+              ) : (
+                <Text style={styles.avatarText}>{userInitial}</Text>
+              )}
+            </Pressable>
+          </View>
         </View>
 
         <Pressable
-          style={({ pressed }) => [
-            styles.categoryChip,
-            hasActivePhase && !isPhaseBannerDismissed && styles.categoryChipCompact,
-            pressed && styles.categoryChipPressed,
-          ]}
+          style={({ pressed }) => [styles.categoryChip, pressed && styles.categoryChipPressed]}
           onPress={() => setIsCategoryPickerOpen(true)}
           accessibilityRole="button"
           accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
         >
-          <MaterialIcons name="apartment" size={16} color={colors.accentText} />
+          <MaterialIcons name="apartment" size={14} color={colors.gold} />
           <Text style={styles.categoryChipText} numberOfLines={1}>
-            {selectedOffice ? selectedOffice.name : "Choose a category (optional)"}
+            {selectedOffice ? selectedOffice.name : "All offices"}
           </Text>
-          <MaterialIcons name="expand-more" size={18} color={colors.textMuted} />
+          <MaterialIcons name="expand-more" size={16} color={colors.textMuted} />
         </Pressable>
 
         <Modal
@@ -194,6 +221,7 @@ export default function StudentChatScreen() {
         >
           <Pressable style={styles.categoryModalBackdrop} onPress={() => setIsCategoryPickerOpen(false)}>
             <View style={styles.categoryModalSheet}>
+              <View style={styles.sheetHandle} />
               <Text style={styles.categoryModalHeading}>Ask about which office?</Text>
               <FlatList
                 data={[{ office_id: null as number | null, name: "General / Not sure" }, ...offices]}
@@ -202,7 +230,11 @@ export default function StudentChatScreen() {
                   const isSelected = item.office_id === (selectedOffice?.office_id ?? null);
                   return (
                     <Pressable
-                      style={styles.categoryModalOption}
+                      style={({ pressed }) => [
+                        styles.categoryModalOption,
+                        isSelected && styles.categoryModalOptionSelected,
+                        pressed && styles.categoryChipPressed,
+                      ]}
                       onPress={() => {
                         Haptics.selectionAsync().catch(() => {});
                         setSelectedOffice(item.office_id === null ? null : { office_id: item.office_id, name: item.name });
@@ -215,7 +247,7 @@ export default function StudentChatScreen() {
                       <Text style={[styles.categoryModalOptionText, isSelected && styles.categoryModalOptionTextSelected]}>
                         {item.name}
                       </Text>
-                      {isSelected ? <MaterialIcons name="check" size={18} color={colors.gold} /> : null}
+                      {isSelected ? <MaterialIcons name="check-circle" size={18} color={colors.gold} /> : null}
                     </Pressable>
                   );
                 }}
@@ -226,6 +258,9 @@ export default function StudentChatScreen() {
 
         {hasActivePhase && !isPhaseBannerDismissed && phase ? (
           <View style={styles.phaseBanner}>
+            <View style={styles.phaseBannerIcon}>
+              <MaterialIcons name="event" size={16} color={colors.gold} />
+            </View>
             <View style={styles.phaseBannerText}>
               <Text style={styles.phaseBannerTitle}>{phase.name}</Text>
               {phase.guidance_message ? (
@@ -238,18 +273,21 @@ export default function StudentChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Dismiss phase banner"
             >
-              <MaterialIcons name="close" size={18} color={colors.textSecondary} />
+              <MaterialIcons name="close" size={18} color={colors.textMuted} />
             </Pressable>
           </View>
         ) : null}
 
         <View style={[styles.body, { paddingBottom: keyboardHeight }]}>
           {messages.length === 0 ? (
-            <View style={styles.welcomeBlock}>
-              <Text style={styles.welcomeTitle}>
-                What can I help with, {currentUser?.first_name ?? "user"}?
+            <Animated.View entering={FadeIn.duration(400)} style={styles.welcomeBlock}>
+              <BotAvatar size={64} />
+              <Text style={styles.welcomeGreeting}>Hi, {currentUser?.first_name ?? "there"} 👋</Text>
+              <Text style={styles.welcomeTitle}>What can I help with?</Text>
+              <Text style={styles.welcomeSubtitle}>
+                Ask about enrollment, scholarships, clearance and other student services.
               </Text>
-            </View>
+            </Animated.View>
           ) : (
             <ScrollView
               ref={scrollViewRef}
@@ -262,24 +300,23 @@ export default function StudentChatScreen() {
               onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
             >
               {messages.map((item, index) => (
-                <View key={index}>
-                  <View
-                    style={[
-                      styles.messageBubble,
-                      item.role === "user" ? styles.messageBubbleUser : styles.messageBubbleAssistant,
-                    ]}
-                  >
-                    <Text
-                      style={
-                        item.role === "user" ? styles.messageTextUser : styles.messageTextAssistant
-                      }
-                    >
-                      {item.text}
-                    </Text>
-                  </View>
+                <Animated.View key={index} entering={FadeInDown.duration(280)}>
+                  {item.role === "user" ? (
+                    <View style={[styles.messageBubble, styles.messageBubbleUser]}>
+                      <Text style={styles.messageTextUser}>{item.text}</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.assistantRow}>
+                      <BotAvatar size={28} />
+                      <View style={[styles.messageBubble, styles.messageBubbleAssistant]}>
+                        <Text style={styles.messageTextAssistant}>{item.text}</Text>
+                      </View>
+                    </View>
+                  )}
                   {item.role === "assistant" && item.logId && item.canRate ? (
                     <View style={styles.feedbackRow}>
                       <Pressable
+                        style={[styles.feedbackButton, item.feedback === "up" && styles.feedbackButtonActive]}
                         onPress={() => {
                           Haptics.selectionAsync().catch(() => {});
                           submitFeedback(item.logId!, "up");
@@ -291,11 +328,12 @@ export default function StudentChatScreen() {
                       >
                         <MaterialIcons
                           name={item.feedback === "up" ? "thumb-up" : "thumb-up-off-alt"}
-                          size={16}
+                          size={15}
                           color={item.feedback === "up" ? colors.accentText : colors.textMuted}
                         />
                       </Pressable>
                       <Pressable
+                        style={[styles.feedbackButton, item.feedback === "down" && styles.feedbackButtonActive]}
                         onPress={() => {
                           Haptics.selectionAsync().catch(() => {});
                           submitFeedback(item.logId!, "down");
@@ -307,7 +345,7 @@ export default function StudentChatScreen() {
                       >
                         <MaterialIcons
                           name={item.feedback === "down" ? "thumb-down" : "thumb-down-off-alt"}
-                          size={16}
+                          size={15}
                           color={item.feedback === "down" ? colors.errorRed : colors.textMuted}
                         />
                       </Pressable>
@@ -316,7 +354,7 @@ export default function StudentChatScreen() {
                       ) : null}
                       {item.ticketId && item.ticketAiResolved ? (
                         <Pressable
-                          style={styles.needHelpLink}
+                          style={({ pressed }) => [styles.needHelpPill, pressed && styles.categoryChipPressed]}
                           onPress={() => handleNeedHelp(item.ticketId!)}
                           disabled={followUpTicketId === item.ticketId}
                           hitSlop={8}
@@ -326,7 +364,10 @@ export default function StudentChatScreen() {
                           {followUpTicketId === item.ticketId ? (
                             <ActivityIndicator size="small" color={colors.accentText} />
                           ) : (
-                            <Text style={styles.needHelpText}>Still need help?</Text>
+                            <>
+                              <MaterialIcons name="support-agent" size={14} color={colors.accentText} />
+                              <Text style={styles.needHelpText}>Still need help?</Text>
+                            </>
                           )}
                         </Pressable>
                       ) : null}
@@ -335,10 +376,18 @@ export default function StudentChatScreen() {
                   {/* A ticket with OSA staff: escalations, repeats, and ChatDesk
                       answers the student asked staff to follow up on. */}
                   {item.role === "assistant" && item.ticketId && !item.ticketAiResolved ? (
-                    <View style={styles.ticketRow}>
-                      <Text style={styles.ticketRowLabel} numberOfLines={2}>
-                        {item.ticketTitle ?? "General Inquiry"} — {item.ticketCode ?? `Ticket #${item.ticketId}`}
-                      </Text>
+                    <View style={styles.ticketCard}>
+                      <View style={styles.ticketCardHeader}>
+                        <View style={styles.ticketCardIcon}>
+                          <MaterialIcons name="confirmation-number" size={16} color={colors.gold} />
+                        </View>
+                        <View style={styles.ticketCardHeaderText}>
+                          <Text style={styles.ticketRowLabel} numberOfLines={2}>
+                            {item.ticketTitle ?? "General Inquiry"}
+                          </Text>
+                          <Text style={styles.ticketCode}>{item.ticketCode ?? `Ticket #${item.ticketId}`}</Text>
+                        </View>
+                      </View>
                       {item.canRate ? (
                         <Text style={styles.ticketRowHint}>Sent to OSA staff - they'll reply in your Tickets.</Text>
                       ) : null}
@@ -351,18 +400,18 @@ export default function StudentChatScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`View ticket ${item.ticketCode ?? item.ticketId}`}
                       >
-                        <MaterialIcons name="confirmation-number" size={15} color={colors.white} />
                         <Text style={styles.viewTicketButtonText}>View Ticket</Text>
+                        <MaterialIcons name="arrow-forward" size={15} color={colors.white} />
                       </Pressable>
                     </View>
                   ) : null}
                   {/* Only on the latest reply - older suggestions are stale once the student moves on. */}
                   {item.suggestions && index === messages.length - 1 && !isSending ? (
-                    <View style={[styles.phaseChipsRow, styles.clarifyChipsRow]}>
+                    <View style={[styles.chipsRow, styles.clarifyChipsRow]}>
                       {item.suggestions.map((question) => (
                         <Pressable
                           key={question}
-                          style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
+                          style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                             sendMessage(question);
@@ -370,61 +419,70 @@ export default function StudentChatScreen() {
                           accessibilityRole="button"
                           accessibilityLabel={`Ask: ${question}`}
                         >
-                          <Text style={styles.phaseChipText}>{question}</Text>
+                          <Text style={styles.chipText}>{question}</Text>
                         </Pressable>
                       ))}
                     </View>
                   ) : null}
-                </View>
+                </Animated.View>
               ))}
               {isSending ? (
-                <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
-                  <ActivityIndicator size="small" color={colors.accentText} />
-                </View>
+                <Animated.View entering={FadeIn.duration(200)} style={styles.assistantRow}>
+                  <BotAvatar size={28} />
+                  <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
+                    <TypingDots color={colors.accentText} />
+                  </View>
+                </Animated.View>
               ) : null}
             </ScrollView>
           )}
 
           {messages.length === 0 ? (
             <View style={styles.suggestions}>
-              {suggestedQuestions.map((question) => (
-                <Pressable
-                  key={question}
-                  style={({ pressed }) => [styles.suggestionRow, pressed && styles.suggestionRowPressed]}
-                  onPress={() => {
-                    Haptics.selectionAsync().catch(() => {});
-                    setMessage(question);
-                  }}
-                >
-                  <Text style={styles.suggestionText}>{question}</Text>
-                  <MaterialIcons name="chevron-right" size={18} color={colors.white} style={styles.suggestionChevron} />
-                </Pressable>
+              {suggestedQuestions.map((question, index) => (
+                <Animated.View key={question} entering={FadeInDown.delay(120 + index * 70).duration(320)}>
+                  <Pressable
+                    style={({ pressed }) => [styles.suggestionCard, pressed && styles.suggestionCardPressed]}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setMessage(question);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use suggestion: ${question}`}
+                  >
+                    <MaterialIcons name="auto-awesome" size={16} color={colors.gold} />
+                    <Text style={styles.suggestionText} numberOfLines={2}>
+                      {question}
+                    </Text>
+                    <MaterialIcons name="north-east" size={16} color={colors.white} style={styles.suggestionChevron} />
+                  </Pressable>
+                </Animated.View>
               ))}
             </View>
           ) : null}
 
           {isChatEmpty && hasActivePhase && phase && phase.suggested_questions.length > 0 ? (
-            <View style={styles.phaseChipsRow}>
+            <View style={styles.chipsRow}>
               {phase.suggested_questions.map((question) => (
                 <Pressable
                   key={question}
-                  style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
+                  style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                     sendMessage(question);
                   }}
                   disabled={isSending}
                 >
-                  <Text style={styles.phaseChipText}>{question}</Text>
+                  <Text style={styles.chipText}>{question}</Text>
                 </Pressable>
               ))}
             </View>
           ) : null}
 
-          <View style={styles.inputBar}>
+          <View style={styles.composer}>
             <TextInput
               style={styles.input}
-              placeholder="Ask ChatDesk"
+              placeholder="Message ChatDesk..."
               placeholderTextColor={colors.textMuted}
               value={message}
               onChangeText={setMessage}
@@ -452,18 +510,25 @@ export default function StudentChatScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.sendButton,
-                !message.trim() && styles.sendButtonDisabled,
+                !canSend && styles.sendButtonDisabled,
                 pressed && styles.sendButtonPressed,
               ]}
               onPress={handleSend}
-              disabled={isSending || !message.trim()}
+              disabled={!canSend}
               accessibilityRole="button"
               accessibilityLabel="Send message"
-              accessibilityState={{ disabled: isSending || !message.trim() }}
+              accessibilityState={{ disabled: !canSend }}
             >
-              <MaterialIcons name="send" size={20} color={colors.white} />
+              {isSending ? (
+                <ActivityIndicator size="small" color={brandColors.navy} />
+              ) : (
+                <MaterialIcons name="arrow-upward" size={20} color={brandColors.navy} />
+              )}
             </Pressable>
           </View>
+          {keyboardHeight === 0 ? (
+            <Text style={styles.disclaimer}>ChatDesk can make mistakes. Check important info with OSA.</Text>
+          ) : null}
         </View>
 
         <NavMenu
@@ -477,6 +542,10 @@ export default function StudentChatScreen() {
   );
 }
 
+// Assistant content (feedback row, ticket card, chips) lines up with the
+// bubble text rather than the avatar: 28px avatar + 8px gap.
+const ASSISTANT_INDENT = 36;
+
 const createStyles = (colors: ThemePalette) =>
   StyleSheet.create({
     root: { flex: 1 },
@@ -485,89 +554,94 @@ const createStyles = (colors: ThemePalette) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: 20,
-      paddingVertical: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
     },
+    headerIconButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerRight: { flexDirection: "row", alignItems: "center", gap: 10 },
     pressedIcon: { opacity: 0.5 },
     title: { fontSize: 20 },
     avatar: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      borderWidth: 1,
-      borderColor: colors.accentText,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 2,
+      borderColor: colors.gold,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.surface,
       overflow: "hidden",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 3,
-      elevation: 2,
     },
-    avatarImage: { width: 30, height: 30 },
-    avatarText: { fontFamily: "Montserrat_700Bold", color: colors.accentText, fontSize: 12 },
+    avatarImage: { width: 34, height: 34 },
+    avatarText: { fontFamily: "Montserrat_700Bold", color: colors.accentText, fontSize: 13 },
     categoryChip: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 8,
-      marginHorizontal: 20,
-      marginBottom: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 12,
+      alignSelf: "center",
+      gap: 6,
+      maxWidth: "80%",
+      marginBottom: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.06,
-      shadowRadius: 3,
-      elevation: 1,
-    },
-    // Applied when the phase banner is also visible, so the two blocks
-    // stacked at the top don't crowd out the welcome message beneath them.
-    categoryChipCompact: {
-      marginBottom: 6,
-      paddingVertical: 7,
     },
     categoryChipPressed: { opacity: 0.7 },
     categoryChipText: {
-      flex: 1,
-      fontFamily: "Montserrat_400Regular",
-      fontSize: 13,
+      flexShrink: 1,
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 12,
       color: colors.textPrimary,
     },
     categoryModalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.4)",
-      justifyContent: "center",
-      paddingHorizontal: 24,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      justifyContent: "flex-end",
     },
     categoryModalSheet: {
-      maxHeight: 420,
+      maxHeight: "65%",
       backgroundColor: colors.surface,
-      borderRadius: 14,
-      paddingTop: 16,
-      paddingBottom: 8,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      paddingTop: 10,
+      paddingBottom: 24,
+    },
+    sheetHandle: {
+      alignSelf: "center",
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      marginBottom: 14,
     },
     categoryModalHeading: {
-      fontFamily: "Montserrat_700Bold",
-      fontSize: 14,
-      color: colors.textSecondary,
+      fontFamily: "PlusJakartaSans_700Bold",
+      fontSize: 17,
+      color: colors.textPrimary,
       paddingHorizontal: 20,
-      paddingBottom: 8,
+      paddingBottom: 10,
     },
     categoryModalOption: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
+      marginHorizontal: 12,
       paddingVertical: 14,
-      paddingHorizontal: 20,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
+      paddingHorizontal: 14,
+      borderRadius: 14,
     },
+    categoryModalOptionSelected: { backgroundColor: `${colors.accentText}14` },
     categoryModalOptionText: {
       fontSize: 15,
       fontFamily: "Montserrat_400Regular",
@@ -581,18 +655,21 @@ const createStyles = (colors: ThemePalette) =>
       flexDirection: "row",
       alignItems: "flex-start",
       gap: 10,
-      marginHorizontal: 20,
-      marginBottom: 12,
-      padding: 14,
-      borderRadius: 14,
+      marginHorizontal: 16,
+      marginBottom: 10,
+      padding: 12,
+      borderRadius: 18,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 4,
-      elevation: 1,
+    },
+    phaseBannerIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(245,166,35,0.15)",
     },
     phaseBannerText: { flex: 1 },
     phaseBannerTitle: {
@@ -607,163 +684,230 @@ const createStyles = (colors: ThemePalette) =>
       lineHeight: 18,
       color: colors.textSecondary,
     },
-    body: { flex: 1, paddingHorizontal: 20 },
-    welcomeBlock: { flex: 1, alignItems: "center", justifyContent: "center" },
+    body: { flex: 1, paddingHorizontal: 16 },
+    welcomeBlock: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+    welcomeGreeting: {
+      marginTop: 16,
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 15,
+      color: colors.textSecondary,
+    },
     welcomeTitle: {
+      marginTop: 4,
       fontSize: 28,
       lineHeight: 36,
       fontFamily: "PlusJakartaSans_700Bold",
       color: colors.textPrimary,
       textAlign: "center",
     },
-    messageList: { flex: 1 },
-    messageListContent: { paddingVertical: 12, gap: 10 },
-    messageBubble: {
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      maxWidth: "85%",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.08,
-      shadowRadius: 4,
-      elevation: 1,
+    welcomeSubtitle: {
+      marginTop: 8,
+      fontSize: 14,
+      lineHeight: 20,
+      fontFamily: "Montserrat_400Regular",
+      color: colors.textSecondary,
+      textAlign: "center",
     },
-    messageBubbleUser: { backgroundColor: colors.accent, alignSelf: "flex-end" },
+    messageList: { flex: 1 },
+    messageListContent: { paddingVertical: 12, gap: 14 },
+    assistantRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+    messageBubble: {
+      borderRadius: 20,
+      paddingHorizontal: 15,
+      paddingVertical: 11,
+      maxWidth: "82%",
+    },
+    messageBubbleUser: {
+      backgroundColor: colors.accent,
+      alignSelf: "flex-end",
+      borderBottomRightRadius: 6,
+    },
     messageBubbleAssistant: {
+      flexShrink: 1,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      alignSelf: "flex-start",
+      borderBottomLeftRadius: 6,
     },
-    typingBubble: { paddingVertical: 12, paddingHorizontal: 16 },
-    messageTextUser: { color: colors.white, fontFamily: "Montserrat_400Regular", fontSize: 15 },
+    typingBubble: { paddingVertical: 14, paddingHorizontal: 18 },
+    messageTextUser: { color: colors.white, fontFamily: "Montserrat_400Regular", fontSize: 15, lineHeight: 21 },
     messageTextAssistant: {
       color: colors.textPrimary,
       fontFamily: "Montserrat_400Regular",
       fontSize: 15,
+      lineHeight: 22,
     },
     feedbackRow: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
-      marginTop: 4,
-      marginBottom: 4,
-      paddingLeft: 4,
-    },
-    ticketRow: {
-      alignSelf: "flex-start",
-      maxWidth: "85%",
-      gap: 8,
+      gap: 6,
       marginTop: 6,
-      marginBottom: 4,
-      padding: 12,
-      borderRadius: 14,
+      paddingLeft: ASSISTANT_INDENT,
+    },
+    feedbackButton: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: "center",
+      justifyContent: "center",
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
     },
-    ticketRowLabel: {
-      fontFamily: "Montserrat_700Bold",
-      fontSize: 13,
-      color: colors.textPrimary,
-    },
-    viewTicketButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      alignSelf: "flex-start",
-      gap: 6,
-      backgroundColor: colors.accent,
-      borderRadius: 16,
-      paddingVertical: 7,
-      paddingHorizontal: 14,
-    },
-    viewTicketButtonPressed: { opacity: 0.8 },
-    ticketRowHint: {
+    feedbackButtonActive: { borderColor: colors.accentText },
+    feedbackThanksText: {
+      marginLeft: 4,
       fontFamily: "Montserrat_400Regular",
       fontSize: 12,
-      color: colors.textSecondary,
+      color: colors.textMuted,
     },
-    needHelpLink: { marginLeft: "auto", minHeight: 20, justifyContent: "center" },
+    needHelpPill: {
+      marginLeft: "auto",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      minHeight: 30,
+      paddingHorizontal: 12,
+      borderRadius: 15,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
     needHelpText: {
       fontFamily: "Montserrat_700Bold",
       fontSize: 12,
       color: colors.accentText,
-      textDecorationLine: "underline",
     },
+    ticketCard: {
+      alignSelf: "flex-start",
+      marginLeft: ASSISTANT_INDENT,
+      maxWidth: "82%",
+      gap: 10,
+      marginTop: 8,
+      padding: 14,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    ticketCardHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+    ticketCardIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(245,166,35,0.15)",
+    },
+    ticketCardHeaderText: { flexShrink: 1 },
+    ticketRowLabel: {
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 14,
+      color: colors.textPrimary,
+    },
+    ticketCode: {
+      marginTop: 1,
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    ticketRowHint: {
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      lineHeight: 17,
+      color: colors.textSecondary,
+    },
+    viewTicketButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+    },
+    viewTicketButtonPressed: { opacity: 0.8 },
     viewTicketButtonText: {
       fontFamily: "Montserrat_700Bold",
       fontSize: 13,
       color: colors.white,
     },
-    feedbackThanksText: {
-      fontFamily: "Montserrat_400Regular",
-      fontSize: 12,
-      color: colors.textMuted,
-    },
-    suggestions: { paddingBottom: 16, gap: 6 },
-    suggestionRow: {
+    suggestions: { paddingBottom: 12, gap: 8 },
+    suggestionCard: {
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingVertical: 12,
+      gap: 10,
+      paddingVertical: 13,
+      paddingHorizontal: 14,
+      borderRadius: 16,
+      // Brand-navy glass, so the white text stays readable even where the
+      // background gradient is still light (top card in light mode).
+      backgroundColor: `${colors.accent}CC`,
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.16)",
     },
-    suggestionRowPressed: { opacity: 0.55 },
+    suggestionCardPressed: { backgroundColor: colors.accent },
     suggestionText: {
       flex: 1,
       fontFamily: "Montserrat_400Regular",
-      fontSize: 15,
+      fontSize: 14,
+      lineHeight: 19,
       color: colors.white,
     },
-    suggestionChevron: { opacity: 0.7, marginLeft: 8 },
-    phaseChipsRow: {
+    suggestionChevron: { opacity: 0.6 },
+    chipsRow: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 8,
       paddingBottom: 12,
     },
-    phaseChip: {
+    chip: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 20,
+      borderRadius: 999,
       paddingHorizontal: 14,
       paddingVertical: 8,
     },
-    phaseChipPressed: { opacity: 0.6 },
-    clarifyChipsRow: { marginTop: 8, paddingBottom: 4 },
-    phaseChipText: {
+    chipPressed: { opacity: 0.6 },
+    clarifyChipsRow: { marginTop: 8, paddingBottom: 4, paddingLeft: ASSISTANT_INDENT },
+    chipText: {
       fontFamily: "Montserrat_400Regular",
       fontSize: 13,
       color: colors.textPrimary,
     },
-    inputBar: {
+    // Single rounded "pill" holding the input and the send button, like the
+    // composer in modern AI chat apps.
+    composer: {
       flexDirection: "row",
       alignItems: "flex-end",
-      gap: 10,
-      paddingVertical: 12,
-      marginBottom: 8,
-    },
-    input: {
-      flex: 1,
+      gap: 8,
+      marginTop: 6,
+      marginBottom: 6,
+      paddingLeft: 16,
+      paddingRight: 6,
+      paddingVertical: 6,
+      borderRadius: 26,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 20,
-      paddingHorizontal: 16,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    input: {
+      flex: 1,
       // Explicit top/bottom - iOS ignores paddingVertical on multiline inputs.
-      paddingTop: 10,
-      paddingBottom: 10,
+      paddingTop: 9,
+      paddingBottom: 9,
       minHeight: 40,
       maxHeight: 120,
       fontSize: 15,
       fontFamily: "Montserrat_400Regular",
       color: colors.textPrimary,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.08,
-      shadowRadius: 6,
-      elevation: 2,
     },
     sendButton: {
       width: 40,
@@ -772,12 +916,14 @@ const createStyles = (colors: ThemePalette) =>
       backgroundColor: colors.gold,
       alignItems: "center",
       justifyContent: "center",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 4,
-      elevation: 3,
     },
-    sendButtonDisabled: { opacity: 0.5 },
-    sendButtonPressed: { opacity: 0.85 },
+    sendButtonDisabled: { opacity: 0.4 },
+    sendButtonPressed: { transform: [{ scale: 0.94 }] },
+    disclaimer: {
+      textAlign: "center",
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 11,
+      color: "rgba(255,255,255,0.6)",
+      marginBottom: 6,
+    },
   });

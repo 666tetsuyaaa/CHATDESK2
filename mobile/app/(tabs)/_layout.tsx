@@ -1,5 +1,6 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { Tabs } from "expo-router";
+import { View } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 
@@ -14,6 +15,22 @@ export default function TabsLayout() {
   // the tab bar's `color` arg, whose type (RN 0.88 ColorValue) the icon
   // library doesn't accept.
   const tabIconColor = (focused: boolean) => (focused ? colors.accentText : colors.textMuted);
+  // Active tab gets a soft tinted pill behind its icon (Material 3 / modern
+  // chat-app style) instead of relying on the tint color alone.
+  const TabIcon = ({ name, focused, size }: { name: keyof typeof MaterialIcons.glyphMap; focused: boolean; size: number }) => (
+    <View
+      style={{
+        width: 56,
+        height: 30,
+        borderRadius: 15,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: focused ? `${colors.accentText}1F` : "transparent",
+      }}
+    >
+      <MaterialIcons name={name} size={size - 2} color={tabIconColor(focused)} />
+    </View>
+  );
 
   return (
     <Tabs
@@ -24,8 +41,9 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
+          paddingTop: 6,
         },
-        tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: 11 },
+        tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: 11, marginTop: 2 },
         // Without this, the tab bar stays reserved at the bottom when the
         // keyboard opens, which throws off each screen's own
         // KeyboardAvoidingView math - the chat input in particular would
@@ -38,7 +56,7 @@ export default function TabsLayout() {
         options={{
           title: "Chat",
           tabBarIcon: ({ focused, size }) => (
-            <MaterialIcons name="chat-bubble-outline" size={size} color={tabIconColor(focused)} />
+            <TabIcon name="chat-bubble-outline" focused={focused} size={size} />
           ),
         }}
       />
@@ -47,7 +65,7 @@ export default function TabsLayout() {
         options={{
           title: "Tickets",
           tabBarIcon: ({ focused, size }) => (
-            <MaterialIcons name="confirmation-number" size={size} color={tabIconColor(focused)} />
+            <TabIcon name="confirmation-number" focused={focused} size={size} />
           ),
           tabBarBadge: unseenCount > 0 ? unseenCount : undefined,
           tabBarBadgeStyle: { backgroundColor: colors.errorRed },
@@ -58,7 +76,7 @@ export default function TabsLayout() {
         options={{
           title: "Announcements",
           tabBarIcon: ({ focused, size }) => (
-            <MaterialIcons name="campaign" size={size} color={tabIconColor(focused)} />
+            <TabIcon name="campaign" focused={focused} size={size} />
           ),
         }}
       />

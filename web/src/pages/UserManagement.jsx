@@ -6,6 +6,7 @@ import Pagination from "../components/Pagination.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import UserAvatar from "../components/UserAvatar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 const ROLE_LABELS = { student: "Student", superadmin: "Super Admin", office_admin: "Office Admin" };
@@ -225,11 +226,7 @@ export default function UserManagement() {
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         {user.profile_picture ? (
-                          <img
-                            src={user.profile_picture}
-                            alt=""
-                            className="h-9 w-9 shrink-0 rounded-full object-cover"
-                          />
+                          <UserAvatar user={user} />
                         ) : (
                           <div
                             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${

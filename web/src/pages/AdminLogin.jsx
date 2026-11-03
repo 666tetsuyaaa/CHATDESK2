@@ -93,7 +93,7 @@ export default function AdminLogin() {
           (not the reference's blue/violet) per explicit brand instruction. */}
       <div className="relative hidden overflow-hidden bg-gradient-to-br from-navy via-navy to-navy-dark px-14 py-14 lg:flex lg:w-[45%] lg:flex-col lg:justify-between">
         <div aria-hidden="true" className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-gold/20 blur-3xl" />
-        <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-16 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-28 -left-16 h-72 w-72 rounded-full bg-glass/10 blur-3xl" />
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.07]"
           viewBox="0 0 600 800"
@@ -107,7 +107,7 @@ export default function AdminLogin() {
         </svg>
 
         <div className="relative z-10 flex items-center gap-3">
-          <div className="flex h-11 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 p-1.5 ring-1 ring-white/20">
+          <div className="flex h-11 w-10 shrink-0 items-center justify-center rounded-lg bg-glass/10 p-1.5 ring-1 ring-white/20">
             <img src={ustpLogo} alt="ChatDesk logo" className="h-full w-full object-contain" />
           </div>
           <span className="text-xl font-bold text-white">
