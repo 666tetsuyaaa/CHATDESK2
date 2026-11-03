@@ -120,11 +120,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
     setIsSending(true);
     try {
-      const { data } = await axiosClient.post("/chat/ask/", {
-        message: trimmed,
-        history,
-        ...(selectedOffice ? { office: selectedOffice.office_id } : {}),
-      });
+      const { data } = await axiosClient.post(
+        "/chat/ask/",
+        {
+          message: trimmed,
+          history,
+          ...(selectedOffice ? { office: selectedOffice.office_id } : {}),
+        },
+        // Longer than the app-wide 15s: the backend gives OpenAI 15s plus one
+        // retry, so a slow reply can take ~30s. Cutting it off sooner showed
+        // "Can't reach ChatDesk" while the server was still answering.
+        { timeout: 45000 }
+      );
       setMessages((prev) => [
         ...prev,
         {
@@ -148,7 +155,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const status = error.response?.status;
       const data = error.response?.data;
       let text = "Can't reach ChatDesk right now. Please check your connection and try again.";
-      if (status === 429) {
+      if (error.code === "ECONNABORTED") {
+        text = "ChatDesk is taking longer than usual to answer. Please try again in a moment.";
+      } else if (status === 429) {
         text = "You're sending messages too quickly. Please wait a moment and try again.";
       } else if (status === 400 && data?.details?.message?.[0]) {
         text = data.details.message[0];
