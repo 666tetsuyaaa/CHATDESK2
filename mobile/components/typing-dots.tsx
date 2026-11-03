@@ -10,7 +10,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-function Dot({ delay, color }: { delay: number; color: string }) {
+// Three bouncing dots - the familiar "assistant is typing" cue used by
+// modern chat apps, instead of a generic spinner.
+function Dot({ color, delay }: { color: string; delay: number }) {
   const progress = useSharedValue(0);
 
   useEffect(() => {
@@ -29,25 +31,23 @@ function Dot({ delay, color }: { delay: number; color: string }) {
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: 0.35 + progress.value * 0.65,
-    transform: [{ translateY: -3 * progress.value }],
+    transform: [{ translateY: -4 * progress.value }],
   }));
 
   return <Animated.View style={[styles.dot, { backgroundColor: color }, animatedStyle]} />;
 }
 
-// "ChatDesk is typing" - three dots bouncing in turn, on the UI thread so it
-// stays smooth while the JS thread is busy handling the reply.
 export function TypingDots({ color }: { color: string }) {
   return (
     <View style={styles.row} accessibilityLabel="ChatDesk is typing">
-      <Dot delay={0} color={color} />
-      <Dot delay={150} color={color} />
-      <Dot delay={300} color={color} />
+      <Dot color={color} delay={0} />
+      <Dot color={color} delay={150} />
+      <Dot color={color} delay={300} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 5, height: 16 },
-  dot: { width: 7, height: 7, borderRadius: 3.5 },
+  dot: { width: 7, height: 7, borderRadius: 4 },
 });

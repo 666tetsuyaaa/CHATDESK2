@@ -6,7 +6,9 @@ import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from "./toke
 // separate device on the network. e.g. http://192.168.1.39:8000/api/v1
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
-const axiosClient = axios.create({ baseURL: BASE_URL });
+// Without a timeout, an unreachable backend (server not running, wrong LAN
+// IP, firewall) leaves requests hanging forever and buttons spin endlessly.
+const axiosClient = axios.create({ baseURL: BASE_URL, timeout: 15000 });
 
 axiosClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const accessToken = await getAccessToken();
