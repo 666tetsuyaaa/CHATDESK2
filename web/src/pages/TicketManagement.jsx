@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { getTickets, updateTicket } from "../api/tickets.js";
 import { getOffices } from "../api/offices.js";
 import FieldError, { invalidInput } from "../components/FieldError.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 import TicketStatusBadge from "../components/TicketStatusBadge.jsx";
 import Pagination from "../components/Pagination.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
@@ -305,8 +306,8 @@ export default function TicketManagement() {
         )}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
           <table className="w-full min-w-[720px] text-left">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -499,7 +500,7 @@ export default function TicketManagement() {
               )}
             </tbody>
           </table>
-        </div>
+        </ScrollTable>
         <Pagination page={page} count={totalCount} onPageChange={setPage} />
       </div>
     </section>

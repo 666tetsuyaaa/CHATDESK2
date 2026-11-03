@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +13,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { AuthHeader } from "../components/auth-header";
 import { FieldError } from "../components/field-error";
+import { PressableScale } from "../components/pressable-scale";
 import axiosClient from "../lib/axiosClient";
 import {
   type FieldErrors,
@@ -109,6 +109,7 @@ export default function ForgotPasswordScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>{step === "request" ? "Reset password" : "Enter code"}</Text>
@@ -132,7 +133,7 @@ export default function ForgotPasswordScreen() {
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-            <Pressable
+            <PressableScale
               style={styles.button}
               onPress={handleRequestCode}
               disabled={isSubmitting || !email}
@@ -145,7 +146,7 @@ export default function ForgotPasswordScreen() {
               ) : (
                 <Text style={styles.buttonText}>Send reset code</Text>
               )}
-            </Pressable>
+            </PressableScale>
           </>
         ) : (
           <>
@@ -173,7 +174,7 @@ export default function ForgotPasswordScreen() {
                 value={newPassword}
                 onChangeText={setNewPassword}
               />
-              <Pressable
+              <PressableScale
                 onPress={() => setIsNewPasswordVisible((prev) => !prev)}
                 hitSlop={10}
                 style={styles.eyeButton}
@@ -185,7 +186,7 @@ export default function ForgotPasswordScreen() {
                   size={20}
                   color={colors.textMuted}
                 />
-              </Pressable>
+              </PressableScale>
             </View>
             <FieldError message={fieldErrors.new_password} />
 
@@ -199,7 +200,7 @@ export default function ForgotPasswordScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
               />
-              <Pressable
+              <PressableScale
                 onPress={() => setIsConfirmPasswordVisible((prev) => !prev)}
                 hitSlop={10}
                 style={styles.eyeButton}
@@ -211,13 +212,13 @@ export default function ForgotPasswordScreen() {
                   size={20}
                   color={colors.textMuted}
                 />
-              </Pressable>
+              </PressableScale>
             </View>
             <FieldError message={fieldErrors.confirm_password} />
 
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-            <Pressable
+            <PressableScale
               style={styles.button}
               onPress={handleConfirmReset}
               disabled={isSubmitting || !code || !newPassword || !confirmPassword}
@@ -233,9 +234,9 @@ export default function ForgotPasswordScreen() {
               ) : (
                 <Text style={styles.buttonText}>Reset password</Text>
               )}
-            </Pressable>
+            </PressableScale>
 
-            <Pressable
+            <PressableScale
               onPress={() => setStep("request")}
               accessibilityRole="button"
               accessibilityLabel="Didn't get a code? Try again"
@@ -243,11 +244,11 @@ export default function ForgotPasswordScreen() {
               <Text style={styles.signupText}>
                 Didn&apos;t get a code? <Text style={styles.signupLink}>Try again</Text>
               </Text>
-            </Pressable>
+            </PressableScale>
           </>
         )}
 
-        <Pressable
+        <PressableScale
           onPress={() => router.replace("/login")}
           accessibilityRole="button"
           accessibilityLabel="Back to log in"
@@ -255,7 +256,7 @@ export default function ForgotPasswordScreen() {
           <Text style={styles.signupText}>
             Back to <Text style={styles.signupLink}>Log in</Text>
           </Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </KeyboardAvoidingView>
   );

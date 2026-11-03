@@ -37,3 +37,57 @@
 .sidebar-scroll-light::-webkit-scrollbar-thumb:hover {
   background-color: rgba(27, 42, 107, 0.3);
 }
+
+/* Wide tables (ScrollTable). The table itself hides its bar; a pinned copy
+   below it is the one admins use - a thicker, always-visible navy bar that
+   turns gold on hover. Chrome/Edge/Safari use the ::-webkit-scrollbar rules;
+   Firefox only understands the standard properties, which would override
+   those rules in Chrome if set unconditionally. */
+.table-scroll-body {
+  scrollbar-width: none;
+}
+.table-scroll-body::-webkit-scrollbar {
+  display: none;
+}
+.table-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background-color: rgba(27, 42, 107, 0.06);
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(27, 42, 107, 0.45);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+.table-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #f5a623;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .table-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: rgba(27, 42, 107, 0.45) rgba(27, 42, 107, 0.06);
+  }
+}
+
+/* Pinned first column. Cells need a solid background so the columns sliding
+   underneath don't show through; colSpan cells (empty states, expanded
+   ticket details) span the whole row and stay unpinned. */
+.sticky-first-column th:first-child:not([colspan]),
+.sticky-first-column td:first-child:not([colspan]) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: #fff;
+  transition: box-shadow 150ms;
+}
+.sticky-first-column thead tr.bg-gray-50 th:first-child,
+.sticky-first-column tbody tr:hover > td:first-child:not([colspan]) {
+  background-color: #f9fafb;
+}
+/* Edge shadow once scrolled, so it's clear content is passing beneath. */
+.sticky-first-column.is-scrolled th:first-child:not([colspan]),
+.sticky-first-column.is-scrolled td:first-child:not([colspan]) {
+  box-shadow: 6px 0 6px -6px rgba(27, 42, 107, 0.3);
+}

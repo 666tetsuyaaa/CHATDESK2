@@ -5,6 +5,7 @@ import FaqFormModal, { CATEGORIES } from "../components/FaqFormModal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function FaqManagement() {
@@ -179,8 +180,8 @@ export default function FaqManagement() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -260,7 +261,7 @@ export default function FaqManagement() {
             )}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
         <Pagination page={page} count={totalCount} onPageChange={setPage} />
       </div>
 

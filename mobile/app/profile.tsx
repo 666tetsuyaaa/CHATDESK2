@@ -2,8 +2,20 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { FieldError } from "../components/field-error";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import axiosClient from "../lib/axiosClient";
@@ -104,22 +116,28 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    // Tapping outside the nickname box closes the keyboard (native only - on
+    // web it would blur the input on every click).
+    <Pressable
+      style={styles.screen}
+      onPress={Platform.OS === "web" ? undefined : Keyboard.dismiss}
+      accessible={false}
+    >
       <View style={styles.header}>
-        <Pressable
+        <PressableScale
           onPress={() => router.back()}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
           <MaterialIcons name="arrow-back" size={24} color={colors.accentText} />
-        </Pressable>
+        </PressableScale>
         <Text style={styles.title}>Profile</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <View style={styles.identityRow}>
-        <Pressable
+        <PressableScale
           style={styles.avatar}
           onPress={handlePickPhoto}
           disabled={isUploadingPhoto}
@@ -137,7 +155,7 @@ export default function ProfileScreen() {
           <View style={styles.avatarEditBadge}>
             <MaterialIcons name="edit" size={12} color={colors.white} />
           </View>
-        </Pressable>
+        </PressableScale>
         <View>
           <Text style={styles.name}>{fullName || "Student"}</Text>
           <Text style={styles.detail}>{courseLabel}</Text>
@@ -155,15 +173,15 @@ export default function ProfileScreen() {
         maxLength={150}
       />
       <FieldError message={nicknameError} />
-      <Pressable style={styles.button} onPress={handleUpdate} disabled={isUpdating}>
+      <PressableScale style={styles.button} onPress={handleUpdate} disabled={isUpdating}>
         <Text style={styles.buttonText}>{isUpdating ? "Updating..." : "Update"}</Text>
-      </Pressable>
+      </PressableScale>
 
       <Text style={styles.sectionLabel}>Account Actions</Text>
-      <Pressable style={styles.button} onPress={handleLogout} disabled={isLoggingOut}>
+      <PressableScale style={styles.button} onPress={handleLogout} disabled={isLoggingOut}>
         <Text style={styles.buttonText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
-      </Pressable>
-    </View>
+      </PressableScale>
+    </Pressable>
   );
 }
 

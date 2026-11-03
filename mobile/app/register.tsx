@@ -16,6 +16,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { AuthHeader } from "../components/auth-header";
 import { FieldError } from "../components/field-error";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import {
   type FieldErrors,
@@ -127,6 +128,7 @@ export default function RegisterScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>Sign up</Text>
@@ -188,7 +190,7 @@ export default function RegisterScreen() {
             value={password}
             onChangeText={setPassword}
           />
-          <Pressable
+          <PressableScale
             onPress={() => setIsPasswordVisible((prev) => !prev)}
             hitSlop={10}
             style={styles.eyeButton}
@@ -200,12 +202,12 @@ export default function RegisterScreen() {
               size={20}
               color={colors.textMuted}
             />
-          </Pressable>
+          </PressableScale>
         </View>
         <FieldError message={fieldErrors.password} />
 
         <Text style={styles.label}>Course</Text>
-        <Pressable
+        <PressableScale pressedScale={0.98}
           style={styles.pickerWrapper}
           onPress={() => setIsCoursePickerOpen(true)}
           accessibilityRole="button"
@@ -213,7 +215,7 @@ export default function RegisterScreen() {
         >
           <Text style={styles.pickerValueText}>{selectedCourseLabel}</Text>
           <MaterialIcons name="expand-more" size={20} color={colors.textMuted} />
-        </Pressable>
+        </PressableScale>
 
         <Modal
           visible={isCoursePickerOpen}
@@ -227,7 +229,7 @@ export default function RegisterScreen() {
                 data={COURSE_OPTIONS}
                 keyExtractor={(option) => option.value}
                 renderItem={({ item }) => (
-                  <Pressable
+                  <PressableScale pressedScale={0.98}
                     style={styles.modalOption}
                     onPress={() => {
                       setCourse(item.value);
@@ -244,7 +246,7 @@ export default function RegisterScreen() {
                     >
                       {item.label}
                     </Text>
-                  </Pressable>
+                  </PressableScale>
                 )}
               />
             </View>
@@ -253,7 +255,7 @@ export default function RegisterScreen() {
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-        <Pressable
+        <PressableScale
           style={styles.button}
           onPress={handleRegister}
           disabled={isSubmitting}
@@ -266,9 +268,9 @@ export default function RegisterScreen() {
           ) : (
             <Text style={styles.buttonText}>Sign Up</Text>
           )}
-        </Pressable>
+        </PressableScale>
 
-        <Pressable
+        <PressableScale
           onPress={() => router.push("/login")}
           accessibilityRole="button"
           accessibilityLabel="Already have an account? Log in here"
@@ -276,7 +278,7 @@ export default function RegisterScreen() {
           <Text style={styles.signupText}>
             Already have an account? <Text style={styles.signupLink}>Log in here</Text>
           </Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </KeyboardAvoidingView>
   );

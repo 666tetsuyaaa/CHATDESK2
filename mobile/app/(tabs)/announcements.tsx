@@ -1,9 +1,10 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, Image, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NavMenu } from "../../components/nav-menu";
+import { PressableScale } from "../../components/pressable-scale";
 import { SkeletonAnnouncementCard } from "../../components/skeleton";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -60,16 +61,16 @@ export default function AnnouncementsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <Pressable
+        <PressableScale
           onPress={() => setIsMenuOpen(true)}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
           <MaterialIcons name="menu" size={26} color={colors.accentText} />
-        </Pressable>
+        </PressableScale>
         <Text style={styles.title}>Announcements</Text>
-        <Pressable
+        <PressableScale
           onPress={() => router.push("/profile")}
           hitSlop={12}
           style={styles.avatar}
@@ -81,7 +82,7 @@ export default function AnnouncementsScreen() {
           ) : (
             <Text style={styles.avatarText}>{userInitial}</Text>
           )}
-        </Pressable>
+        </PressableScale>
       </View>
 
       {loadFailed ? (
@@ -111,18 +112,20 @@ export default function AnnouncementsScreen() {
           <Text style={styles.centerState}>Check back later for updates from your offices.</Text>
         </ScrollView>
       ) : (
-        <ScrollView
+        // FlatList only draws the cards on screen, so a long feed stays smooth.
+        <FlatList
+          data={announcements}
+          keyExtractor={(announcement) => String(announcement.announcement_id)}
           contentContainerStyle={styles.listContent}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
-        >
-          {announcements.map((announcement) => (
-            <View key={announcement.announcement_id} style={styles.card}>
+          renderItem={({ item: announcement }) => (
+            <View style={styles.card}>
               <Text style={styles.cardTitle}>{announcement.title}</Text>
               <Text style={styles.cardContent}>{announcement.content}</Text>
               <Text style={styles.cardDate}>{formatDate(announcement.created_at)}</Text>
             </View>
-          ))}
-        </ScrollView>
+          )}
+        />
       )}
 
       <NavMenu

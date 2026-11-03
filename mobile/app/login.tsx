@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +13,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
 import { AuthHeader } from "../components/auth-header";
 import { FieldError } from "../components/field-error";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { type FieldErrors, hasErrors, serverFieldErrors, validateEmail } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
@@ -66,6 +66,7 @@ export default function LoginScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>Log in</Text>
@@ -93,7 +94,7 @@ export default function LoginScreen() {
             value={password}
             onChangeText={setPassword}
           />
-          <Pressable
+          <PressableScale
             onPress={() => setIsPasswordVisible((prev) => !prev)}
             hitSlop={10}
             style={styles.eyeButton}
@@ -105,22 +106,22 @@ export default function LoginScreen() {
               size={20}
               color={colors.textMuted}
             />
-          </Pressable>
+          </PressableScale>
         </View>
         <FieldError message={fieldErrors.password} />
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-        <Pressable
+        <PressableScale pressedScale={0.98}
           onPress={() => router.push("/forgot-password")}
           style={styles.forgotRow}
           accessibilityRole="button"
           accessibilityLabel="Forgot password"
         >
           <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-        </Pressable>
+        </PressableScale>
 
-        <Pressable
+        <PressableScale
           style={styles.button}
           onPress={handleLogin}
           disabled={isSubmitting}
@@ -133,9 +134,9 @@ export default function LoginScreen() {
           ) : (
             <Text style={styles.buttonText}>Log in</Text>
           )}
-        </Pressable>
+        </PressableScale>
 
-        <Pressable
+        <PressableScale
           onPress={() => router.push("/register")}
           accessibilityRole="button"
           accessibilityLabel="No account? Sign up here"
@@ -143,7 +144,7 @@ export default function LoginScreen() {
           <Text style={styles.signupText}>
             No account? <Text style={styles.signupLink}>Sign up here</Text>
           </Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </KeyboardAvoidingView>
   );

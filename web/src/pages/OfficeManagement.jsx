@@ -3,6 +3,7 @@ import { createOffice, deleteOffice, getOffices, updateOffice } from "../api/off
 import OfficeFormModal from "../components/OfficeFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 
 export default function OfficeManagement() {
   const [offices, setOffices] = useState([]);
@@ -101,8 +102,8 @@ export default function OfficeManagement() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -170,7 +171,7 @@ export default function OfficeManagement() {
             )}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
       </div>
 
       {isModalOpen && (

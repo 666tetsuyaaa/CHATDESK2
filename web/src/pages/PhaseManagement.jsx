@@ -4,6 +4,7 @@ import PhaseFormModal from "../components/PhaseFormModal.jsx";
 import PhaseExtractReview from "../components/PhaseExtractReview.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 
 function phaseStatus(phase) {
   const today = new Date().toISOString().slice(0, 10);
@@ -171,8 +172,8 @@ export default function PhaseManagement() {
 
       {extractError && <p className="mb-4 text-sm text-red-600">{extractError}</p>}
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -249,7 +250,7 @@ export default function PhaseManagement() {
             )}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
       </div>
 
       {isModalOpen && (

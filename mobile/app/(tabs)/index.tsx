@@ -9,6 +9,7 @@ import {
   FlatList,
   Image,
   Keyboard,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -18,10 +19,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { ScrollViewInstance } from "react-native";
+import type { KeyboardEvent, ScrollViewInstance } from "react-native";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandTitle } from "../../components/brand-title";
 import { NavMenu } from "../../components/nav-menu";
+import { PressableScale } from "../../components/pressable-scale";
+import { TypingDots } from "../../components/typing-dots";
 import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -118,9 +122,30 @@ export default function StudentChatScreen() {
   // (the input bar was ending up completely hidden behind the keyboard).
   // Tracking the keyboard height directly and applying it as padding sidesteps
   // that ancestor-height-chain ambiguity entirely.
+  // iOS sends "will" events in step with the keyboard, so the input bar rises
+  // and falls with it (same animation KeyboardAvoidingView uses) instead of
+  // jumping once it lands. Android only has "did" events, so it eases there.
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
+    const isIOS = Platform.OS === "ios";
+    const animateWith = (e: KeyboardEvent) => {
+      if (isIOS) {
+        const duration = Math.max(e.duration, 10);
+        LayoutAnimation.configureNext({
+          duration,
+          update: { duration, type: LayoutAnimation.Types[e.easing] ?? LayoutAnimation.Types.keyboard },
+        });
+      } else {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      }
+    };
+    const showSub = Keyboard.addListener(isIOS ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      animateWith(e);
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(isIOS ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      animateWith(e);
+      setKeyboardHeight(0);
+    });
     return () => {
       showSub.remove();
       hideSub.remove();
@@ -143,335 +168,352 @@ export default function StudentChatScreen() {
         style={StyleSheet.absoluteFill}
       />
       <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-        <View style={styles.header}>
-          <Pressable
-            onPress={() => setIsMenuOpen(true)}
-            hitSlop={12}
-            style={({ pressed }) => [pressed && styles.pressedIcon]}
-            accessibilityRole="button"
-            accessibilityLabel="Open menu"
-          >
-            <MaterialIcons name="menu" size={26} color={colors.accentText} />
-          </Pressable>
-          <BrandTitle style={styles.title} chatColor={isDark ? brandColors.white : brandColors.navy} />
-          <Pressable
-            onPress={() => router.push("/profile")}
-            hitSlop={12}
-            style={({ pressed }) => [styles.avatar, pressed && styles.pressedIcon]}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-          >
-            {currentUser?.profile_picture ? (
-              <Image source={{ uri: currentUser.profile_picture }} style={styles.avatarImage} />
-            ) : (
-              <Text style={styles.avatarText}>{userInitial}</Text>
-            )}
-          </Pressable>
-        </View>
-
+        {/* Tapping anywhere that isn't a button or the text box closes the
+            keyboard. Buttons inside still get their own taps first. Native
+            only - on web this would blur the input on every click. */}
         <Pressable
-          style={({ pressed }) => [
-            styles.categoryChip,
-            hasActivePhase && !isPhaseBannerDismissed && styles.categoryChipCompact,
-            pressed && styles.categoryChipPressed,
-          ]}
-          onPress={() => setIsCategoryPickerOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
+          style={styles.screen}
+          onPress={Platform.OS === "web" ? undefined : Keyboard.dismiss}
+          accessible={false}
         >
-          <MaterialIcons name="apartment" size={16} color={colors.accentText} />
-          <Text style={styles.categoryChipText} numberOfLines={1}>
-            {selectedOffice ? selectedOffice.name : "Choose a category (optional)"}
-          </Text>
-          <MaterialIcons name="expand-more" size={18} color={colors.textMuted} />
-        </Pressable>
-
-        <Modal
-          visible={isCategoryPickerOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsCategoryPickerOpen(false)}
-        >
-          <Pressable style={styles.categoryModalBackdrop} onPress={() => setIsCategoryPickerOpen(false)}>
-            <View style={styles.categoryModalSheet}>
-              <Text style={styles.categoryModalHeading}>Ask about which office?</Text>
-              <FlatList
-                data={[{ office_id: null as number | null, name: "General / Not sure" }, ...offices]}
-                keyExtractor={(option) => String(option.office_id)}
-                renderItem={({ item }) => {
-                  const isSelected = item.office_id === (selectedOffice?.office_id ?? null);
-                  return (
-                    <Pressable
-                      style={styles.categoryModalOption}
-                      onPress={() => {
-                        Haptics.selectionAsync().catch(() => {});
-                        setSelectedOffice(item.office_id === null ? null : { office_id: item.office_id, name: item.name });
-                        setIsCategoryPickerOpen(false);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={item.name}
-                      accessibilityState={{ selected: isSelected }}
-                    >
-                      <Text style={[styles.categoryModalOptionText, isSelected && styles.categoryModalOptionTextSelected]}>
-                        {item.name}
-                      </Text>
-                      {isSelected ? <MaterialIcons name="check" size={18} color={colors.gold} /> : null}
-                    </Pressable>
-                  );
-                }}
-              />
-            </View>
-          </Pressable>
-        </Modal>
-
-        {hasActivePhase && !isPhaseBannerDismissed && phase ? (
-          <View style={styles.phaseBanner}>
-            <View style={styles.phaseBannerText}>
-              <Text style={styles.phaseBannerTitle}>{phase.name}</Text>
-              {phase.guidance_message ? (
-                <Text style={styles.phaseBannerMessage}>{phase.guidance_message}</Text>
-              ) : null}
-            </View>
+          <View style={styles.header}>
             <Pressable
-              onPress={() => setIsPhaseBannerDismissed(true)}
+              onPress={() => setIsMenuOpen(true)}
               hitSlop={12}
+              style={({ pressed }) => [pressed && styles.pressedIcon]}
               accessibilityRole="button"
-              accessibilityLabel="Dismiss phase banner"
+              accessibilityLabel="Open menu"
             >
-              <MaterialIcons name="close" size={18} color={colors.textSecondary} />
+              <MaterialIcons name="menu" size={26} color={colors.accentText} />
+            </Pressable>
+            <BrandTitle style={styles.title} chatColor={isDark ? brandColors.white : brandColors.navy} />
+            <Pressable
+              onPress={() => router.push("/profile")}
+              hitSlop={12}
+              style={({ pressed }) => [styles.avatar, pressed && styles.pressedIcon]}
+              accessibilityRole="button"
+              accessibilityLabel="Open profile"
+            >
+              {currentUser?.profile_picture ? (
+                <Image source={{ uri: currentUser.profile_picture }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{userInitial}</Text>
+              )}
             </Pressable>
           </View>
-        ) : null}
 
-        <View style={[styles.body, { paddingBottom: keyboardHeight }]}>
-          {messages.length === 0 ? (
-            <View style={styles.welcomeBlock}>
-              <Text style={styles.welcomeTitle}>
-                What can I help with, {currentUser?.first_name ?? "user"}?
-              </Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.categoryChip,
+              hasActivePhase && !isPhaseBannerDismissed && styles.categoryChipCompact,
+              pressed && styles.categoryChipPressed,
+            ]}
+            onPress={() => setIsCategoryPickerOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
+          >
+            <MaterialIcons name="apartment" size={16} color={colors.accentText} />
+            <Text style={styles.categoryChipText} numberOfLines={1}>
+              {selectedOffice ? selectedOffice.name : "Choose a category (optional)"}
+            </Text>
+            <MaterialIcons name="expand-more" size={18} color={colors.textMuted} />
+          </Pressable>
+
+          <Modal
+            visible={isCategoryPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setIsCategoryPickerOpen(false)}
+          >
+            <Pressable style={styles.categoryModalBackdrop} onPress={() => setIsCategoryPickerOpen(false)}>
+              <View style={styles.categoryModalSheet}>
+                <Text style={styles.categoryModalHeading}>Ask about which office?</Text>
+                <FlatList
+                  data={[{ office_id: null as number | null, name: "General / Not sure" }, ...offices]}
+                  keyExtractor={(option) => String(option.office_id)}
+                  renderItem={({ item }) => {
+                    const isSelected = item.office_id === (selectedOffice?.office_id ?? null);
+                    return (
+                      <PressableScale pressedScale={0.98}
+                        style={styles.categoryModalOption}
+                        onPress={() => {
+                          Haptics.selectionAsync().catch(() => {});
+                          setSelectedOffice(item.office_id === null ? null : { office_id: item.office_id, name: item.name });
+                          setIsCategoryPickerOpen(false);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={item.name}
+                        accessibilityState={{ selected: isSelected }}
+                      >
+                        <Text style={[styles.categoryModalOptionText, isSelected && styles.categoryModalOptionTextSelected]}>
+                          {item.name}
+                        </Text>
+                        {isSelected ? <MaterialIcons name="check" size={18} color={colors.gold} /> : null}
+                      </PressableScale>
+                    );
+                  }}
+                />
+              </View>
+            </Pressable>
+          </Modal>
+
+          {hasActivePhase && !isPhaseBannerDismissed && phase ? (
+            <View style={styles.phaseBanner}>
+              <View style={styles.phaseBannerText}>
+                <Text style={styles.phaseBannerTitle}>{phase.name}</Text>
+                {phase.guidance_message ? (
+                  <Text style={styles.phaseBannerMessage}>{phase.guidance_message}</Text>
+                ) : null}
+              </View>
+              <PressableScale
+                onPress={() => setIsPhaseBannerDismissed(true)}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss phase banner"
+              >
+                <MaterialIcons name="close" size={18} color={colors.textSecondary} />
+              </PressableScale>
             </View>
-          ) : (
-            <ScrollView
-              ref={scrollViewRef}
-              style={styles.messageList}
-              contentContainerStyle={styles.messageListContent}
-              showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
-              // Fires when the keyboard (or a growing input) shrinks the
-              // visible area - content size alone doesn't change then.
-              onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
-            >
-              {messages.map((item, index) => (
-                <View key={index}>
-                  <View
-                    style={[
-                      styles.messageBubble,
-                      item.role === "user" ? styles.messageBubbleUser : styles.messageBubbleAssistant,
-                    ]}
-                  >
-                    <Text
-                      style={
-                        item.role === "user" ? styles.messageTextUser : styles.messageTextAssistant
-                      }
+          ) : null}
+
+          <View style={[styles.body, { paddingBottom: keyboardHeight }]}>
+            {messages.length === 0 ? (
+              <View style={styles.welcomeBlock}>
+                <Text style={styles.welcomeTitle}>
+                  What can I help with, {currentUser?.first_name ?? "user"}?
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                ref={scrollViewRef}
+                style={styles.messageList}
+                contentContainerStyle={styles.messageListContent}
+                showsVerticalScrollIndicator={false}
+                // Taps on empty space close the keyboard, taps on buttons go
+                // through on the first try, and dragging the chat closes it too.
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+                // Fires when the keyboard (or a growing input) shrinks the
+                // visible area - content size alone doesn't change then.
+                onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+              >
+                {messages.map((item, index) => (
+                  // New messages slide up and fade in instead of popping in.
+                  <Animated.View key={index} entering={FadeInDown.duration(220)}>
+                    <View
+                      style={[
+                        styles.messageBubble,
+                        item.role === "user" ? styles.messageBubbleUser : styles.messageBubbleAssistant,
+                      ]}
                     >
-                      {item.text}
-                    </Text>
-                  </View>
-                  {item.role === "assistant" && item.logId && item.canRate ? (
-                    <View style={styles.feedbackRow}>
-                      <Pressable
-                        onPress={() => {
-                          Haptics.selectionAsync().catch(() => {});
-                          submitFeedback(item.logId!, "up");
-                        }}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Mark this answer as helpful"
-                        accessibilityState={{ selected: item.feedback === "up" }}
+                      <Text
+                        style={
+                          item.role === "user" ? styles.messageTextUser : styles.messageTextAssistant
+                        }
                       >
-                        <MaterialIcons
-                          name={item.feedback === "up" ? "thumb-up" : "thumb-up-off-alt"}
-                          size={16}
-                          color={item.feedback === "up" ? colors.accentText : colors.textMuted}
-                        />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          Haptics.selectionAsync().catch(() => {});
-                          submitFeedback(item.logId!, "down");
-                        }}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Mark this answer as not helpful"
-                        accessibilityState={{ selected: item.feedback === "down" }}
-                      >
-                        <MaterialIcons
-                          name={item.feedback === "down" ? "thumb-down" : "thumb-down-off-alt"}
-                          size={16}
-                          color={item.feedback === "down" ? colors.errorRed : colors.textMuted}
-                        />
-                      </Pressable>
-                      {item.feedback ? (
-                        <Text style={styles.feedbackThanksText}>Thanks for your feedback</Text>
-                      ) : null}
-                      {item.ticketId && item.ticketAiResolved ? (
-                        <Pressable
-                          style={styles.needHelpLink}
-                          onPress={() => handleNeedHelp(item.ticketId!)}
-                          disabled={followUpTicketId === item.ticketId}
+                        {item.text}
+                      </Text>
+                    </View>
+                    {item.role === "assistant" && item.logId && item.canRate ? (
+                      <View style={styles.feedbackRow}>
+                        <PressableScale
+                          onPress={() => {
+                            Haptics.selectionAsync().catch(() => {});
+                            submitFeedback(item.logId!, "up");
+                          }}
                           hitSlop={8}
                           accessibilityRole="button"
-                          accessibilityLabel="Still need help? Send this question to OSA staff"
+                          accessibilityLabel="Mark this answer as helpful"
+                          accessibilityState={{ selected: item.feedback === "up" }}
                         >
-                          {followUpTicketId === item.ticketId ? (
-                            <ActivityIndicator size="small" color={colors.accentText} />
-                          ) : (
-                            <Text style={styles.needHelpText}>Still need help?</Text>
-                          )}
-                        </Pressable>
-                      ) : null}
-                    </View>
-                  ) : null}
-                  {/* A ticket with OSA staff: escalations, repeats, and ChatDesk
-                      answers the student asked staff to follow up on. */}
-                  {item.role === "assistant" && item.ticketId && !item.ticketAiResolved ? (
-                    <View style={styles.ticketRow}>
-                      <Text style={styles.ticketRowLabel} numberOfLines={2}>
-                        {item.ticketTitle ?? "General Inquiry"} — {item.ticketCode ?? `Ticket #${item.ticketId}`}
-                      </Text>
-                      {item.canRate ? (
-                        <Text style={styles.ticketRowHint}>Sent to OSA staff - they'll reply in your Tickets.</Text>
-                      ) : null}
-                      <Pressable
-                        style={({ pressed }) => [styles.viewTicketButton, pressed && styles.viewTicketButtonPressed]}
-                        onPress={() => {
-                          Haptics.selectionAsync().catch(() => {});
-                          router.push({ pathname: "/tickets", params: { ticketId: String(item.ticketId) } });
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={`View ticket ${item.ticketCode ?? item.ticketId}`}
-                      >
-                        <MaterialIcons name="confirmation-number" size={15} color={colors.white} />
-                        <Text style={styles.viewTicketButtonText}>View Ticket</Text>
-                      </Pressable>
-                    </View>
-                  ) : null}
-                  {/* Only on the latest reply - older suggestions are stale once the student moves on. */}
-                  {item.suggestions && index === messages.length - 1 && !isSending ? (
-                    <View style={[styles.phaseChipsRow, styles.clarifyChipsRow]}>
-                      {item.suggestions.map((question) => (
-                        <Pressable
-                          key={question}
-                          style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
+                          <MaterialIcons
+                            name={item.feedback === "up" ? "thumb-up" : "thumb-up-off-alt"}
+                            size={16}
+                            color={item.feedback === "up" ? colors.accentText : colors.textMuted}
+                          />
+                        </PressableScale>
+                        <PressableScale
                           onPress={() => {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                            sendMessage(question);
+                            Haptics.selectionAsync().catch(() => {});
+                            submitFeedback(item.logId!, "down");
+                          }}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Mark this answer as not helpful"
+                          accessibilityState={{ selected: item.feedback === "down" }}
+                        >
+                          <MaterialIcons
+                            name={item.feedback === "down" ? "thumb-down" : "thumb-down-off-alt"}
+                            size={16}
+                            color={item.feedback === "down" ? colors.errorRed : colors.textMuted}
+                          />
+                        </PressableScale>
+                        {item.feedback ? (
+                          <Text style={styles.feedbackThanksText}>Thanks for your feedback</Text>
+                        ) : null}
+                        {item.ticketId && item.ticketAiResolved ? (
+                          <PressableScale
+                            style={styles.needHelpLink}
+                            onPress={() => handleNeedHelp(item.ticketId!)}
+                            disabled={followUpTicketId === item.ticketId}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Still need help? Send this question to OSA staff"
+                          >
+                            {followUpTicketId === item.ticketId ? (
+                              <ActivityIndicator size="small" color={colors.accentText} />
+                            ) : (
+                              <Text style={styles.needHelpText}>Still need help?</Text>
+                            )}
+                          </PressableScale>
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {/* A ticket with OSA staff: escalations, repeats, and ChatDesk
+                        answers the student asked staff to follow up on. */}
+                    {item.role === "assistant" && item.ticketId && !item.ticketAiResolved ? (
+                      <View style={styles.ticketRow}>
+                        <Text style={styles.ticketRowLabel} numberOfLines={2}>
+                          {item.ticketTitle ?? "General Inquiry"} — {item.ticketCode ?? `Ticket #${item.ticketId}`}
+                        </Text>
+                        {item.canRate ? (
+                          <Text style={styles.ticketRowHint}>Sent to OSA staff - they'll reply in your Tickets.</Text>
+                        ) : null}
+                        <Pressable
+                          style={({ pressed }) => [styles.viewTicketButton, pressed && styles.viewTicketButtonPressed]}
+                          onPress={() => {
+                            Haptics.selectionAsync().catch(() => {});
+                            router.push({ pathname: "/tickets", params: { ticketId: String(item.ticketId) } });
                           }}
                           accessibilityRole="button"
-                          accessibilityLabel={`Ask: ${question}`}
+                          accessibilityLabel={`View ticket ${item.ticketCode ?? item.ticketId}`}
                         >
-                          <Text style={styles.phaseChipText}>{question}</Text>
+                          <MaterialIcons name="confirmation-number" size={15} color={colors.white} />
+                          <Text style={styles.viewTicketButtonText}>View Ticket</Text>
                         </Pressable>
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              ))}
-              {isSending ? (
-                <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
-                  <ActivityIndicator size="small" color={colors.accentText} />
-                </View>
-              ) : null}
-            </ScrollView>
-          )}
+                      </View>
+                    ) : null}
+                    {/* Only on the latest reply - older suggestions are stale once the student moves on. */}
+                    {item.suggestions && index === messages.length - 1 && !isSending ? (
+                      <View style={[styles.phaseChipsRow, styles.clarifyChipsRow]}>
+                        {item.suggestions.map((question) => (
+                          <Pressable
+                            key={question}
+                            style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                              sendMessage(question);
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Ask: ${question}`}
+                          >
+                            <Text style={styles.phaseChipText}>{question}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ) : null}
+                  </Animated.View>
+                ))}
+                {isSending ? (
+                  <Animated.View
+                    entering={FadeIn.duration(180)}
+                    style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}
+                  >
+                    <TypingDots color={colors.accentText} />
+                  </Animated.View>
+                ) : null}
+              </ScrollView>
+            )}
 
-          {messages.length === 0 ? (
-            <View style={styles.suggestions}>
-              {suggestedQuestions.map((question) => (
-                <Pressable
-                  key={question}
-                  style={({ pressed }) => [styles.suggestionRow, pressed && styles.suggestionRowPressed]}
-                  onPress={() => {
-                    Haptics.selectionAsync().catch(() => {});
-                    setMessage(question);
-                  }}
-                >
-                  <Text style={styles.suggestionText}>{question}</Text>
-                  <MaterialIcons name="chevron-right" size={18} color={colors.white} style={styles.suggestionChevron} />
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+            {messages.length === 0 ? (
+              <View style={styles.suggestions}>
+                {suggestedQuestions.map((question) => (
+                  <Pressable
+                    key={question}
+                    style={({ pressed }) => [styles.suggestionRow, pressed && styles.suggestionRowPressed]}
+                    onPress={() => {
+                      Haptics.selectionAsync().catch(() => {});
+                      setMessage(question);
+                    }}
+                  >
+                    <Text style={styles.suggestionText}>{question}</Text>
+                    <MaterialIcons name="chevron-right" size={18} color={colors.white} style={styles.suggestionChevron} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
 
-          {isChatEmpty && hasActivePhase && phase && phase.suggested_questions.length > 0 ? (
-            <View style={styles.phaseChipsRow}>
-              {phase.suggested_questions.map((question) => (
-                <Pressable
-                  key={question}
-                  style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                    sendMessage(question);
-                  }}
-                  disabled={isSending}
-                >
-                  <Text style={styles.phaseChipText}>{question}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
+            {isChatEmpty && hasActivePhase && phase && phase.suggested_questions.length > 0 ? (
+              <View style={styles.phaseChipsRow}>
+                {phase.suggested_questions.map((question) => (
+                  <Pressable
+                    key={question}
+                    style={({ pressed }) => [styles.phaseChip, pressed && styles.phaseChipPressed]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      sendMessage(question);
+                    }}
+                    disabled={isSending}
+                  >
+                    <Text style={styles.phaseChipText}>{question}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
 
-          <View style={styles.inputBar}>
-            <TextInput
-              style={styles.input}
-              placeholder="Ask ChatDesk"
-              placeholderTextColor={colors.textMuted}
-              value={message}
-              onChangeText={setMessage}
-              // Matches the backend's chat message cap.
-              maxLength={1000}
-              multiline
-              // Native: the keyboard's send key submits instead of adding a newline.
-              submitBehavior="submit"
-              onSubmitEditing={handleSend}
-              // Web: react-native-web ignores submitBehavior, so Enter sends
-              // here and Shift+Enter still adds a newline.
-              onKeyPress={
-                Platform.OS === "web"
-                  ? (e) => {
-                      const event = e as unknown as { key: string; shiftKey?: boolean; preventDefault: () => void };
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        handleSend();
+            <View style={styles.inputBar}>
+              <TextInput
+                style={styles.input}
+                placeholder="Ask ChatDesk"
+                placeholderTextColor={colors.textMuted}
+                value={message}
+                onChangeText={setMessage}
+                // Matches the backend's chat message cap.
+                maxLength={1000}
+                multiline
+                // Native: the keyboard's send key submits instead of adding a newline.
+                submitBehavior="submit"
+                onSubmitEditing={handleSend}
+                // Web: react-native-web ignores submitBehavior, so Enter sends
+                // here and Shift+Enter still adds a newline.
+                onKeyPress={
+                  Platform.OS === "web"
+                    ? (e) => {
+                        const event = e as unknown as { key: string; shiftKey?: boolean; preventDefault: () => void };
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          handleSend();
+                        }
                       }
-                    }
-                  : undefined
-              }
-              returnKeyType="send"
-            />
-            <Pressable
-              style={({ pressed }) => [
-                styles.sendButton,
-                !message.trim() && styles.sendButtonDisabled,
-                pressed && styles.sendButtonPressed,
-              ]}
-              onPress={handleSend}
-              disabled={isSending || !message.trim()}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-              accessibilityState={{ disabled: isSending || !message.trim() }}
-            >
-              <MaterialIcons name="send" size={20} color={colors.white} />
-            </Pressable>
+                    : undefined
+                }
+                returnKeyType="send"
+              />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.sendButton,
+                  !message.trim() && styles.sendButtonDisabled,
+                  pressed && styles.sendButtonPressed,
+                ]}
+                onPress={handleSend}
+                disabled={isSending || !message.trim()}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+                accessibilityState={{ disabled: isSending || !message.trim() }}
+              >
+                <MaterialIcons name="send" size={20} color={colors.white} />
+              </Pressable>
+            </View>
           </View>
-        </View>
 
-        <NavMenu
-          visible={isMenuOpen}
-          onClose={() => setIsMenuOpen(false)}
-          userInitial={userInitial}
-          onLogout={logout}
-        />
+          <NavMenu
+            visible={isMenuOpen}
+            onClose={() => setIsMenuOpen(false)}
+            userInitial={userInitial}
+            onLogout={logout}
+          />
+        </Pressable>
       </SafeAreaView>
     </View>
   );

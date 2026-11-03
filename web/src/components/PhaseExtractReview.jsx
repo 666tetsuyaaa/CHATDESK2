@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPhase } from "../api/phases.js";
 import PhaseFormModal from "./PhaseFormModal.jsx";
+import ScrollTable from "./ScrollTable.jsx";
 
 // Review screen for phases extracted from an uploaded calendar PDF -
 // nothing here is saved until "Save selected" is clicked, and each row is
@@ -91,8 +92,8 @@ export default function PhaseExtractReview({ candidates, onDone }) {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable stickyFirstColumn={false}>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -152,7 +153,7 @@ export default function PhaseExtractReview({ candidates, onDone }) {
             ))}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
       </div>
 
       {editingRow && (

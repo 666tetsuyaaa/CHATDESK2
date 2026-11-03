@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getAnalyticsOverview } from "../api/analytics.js";
 import { getOffices } from "../api/offices.js";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { formatDuration, formatManila, secondsSince } from "../utils/dates.js";
 
@@ -253,7 +254,7 @@ function OfficeWorkload({ rows }) {
       {rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-gray-500">No tickets for these filters.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <ScrollTable>
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -302,7 +303,7 @@ function OfficeWorkload({ rows }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollTable>
       )}
     </div>
   );

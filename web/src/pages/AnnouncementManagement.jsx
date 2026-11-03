@@ -8,6 +8,7 @@ import {
 import AnnouncementFormModal from "../components/AnnouncementFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
 
 export default function AnnouncementManagement() {
   const [announcements, setAnnouncements] = useState([]);
@@ -102,8 +103,8 @@ export default function AnnouncementManagement() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -175,7 +176,7 @@ export default function AnnouncementManagement() {
             )}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
       </div>
 
       {isModalOpen && (

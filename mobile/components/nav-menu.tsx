@@ -23,6 +23,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandTitle } from "./brand-title";
+import { PressableScale } from "./pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useChat } from "../context/ChatContext";
 import { useTheme } from "../context/ThemeContext";
@@ -152,16 +153,16 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
       <Animated.View style={[styles.panel, { width: panelWidth }, panelStyle]}>
         <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
           <View style={styles.header}>
-            <Pressable
+            <PressableScale
               onPress={onClose}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close menu"
             >
               <MaterialIcons name="close" size={24} color={colors.accentText} />
-            </Pressable>
+            </PressableScale>
             <BrandTitle style={styles.title} chatColor={isDark ? brandColors.white : brandColors.navy} />
-            <Pressable
+            <PressableScale
               style={styles.avatar}
               hitSlop={12}
               onPress={() => {
@@ -176,12 +177,12 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
               ) : (
                 <Text style={styles.avatarText}>{userInitial}</Text>
               )}
-            </Pressable>
+            </PressableScale>
           </View>
 
           <View style={styles.menuList}>
             {MENU_ITEMS.map((item) => (
-              <Pressable
+              <PressableScale pressedScale={0.98}
                 key={item.label}
                 style={styles.menuRow}
                 onPress={() => handleMenuItemPress(item.label)}
@@ -196,7 +197,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
                     <MaterialIcons name="expand-more" size={20} color={colors.accentText} />
                   </Animated.View>
                 ) : null}
-              </Pressable>
+              </PressableScale>
             ))}
             <Animated.View style={[styles.subMenuContainer, susRowStyle]}>
               <Pressable
@@ -215,7 +216,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
           ) : (
             <ScrollView style={styles.historyList} contentContainerStyle={styles.historyListContent}>
               {history.map((session) => (
-                <Pressable
+                <PressableScale pressedScale={0.98}
                   key={session.id}
                   style={styles.historyRow}
                   onPress={() => handleResumeSession(session.id)}
@@ -223,15 +224,15 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
                   <Text style={styles.historyLabel} numberOfLines={1}>
                     {session.title}
                   </Text>
-                </Pressable>
+                </PressableScale>
               ))}
             </ScrollView>
           )}
 
           <View style={styles.footer}>
-            <Pressable style={styles.logoutButton} onPress={handleLogout} disabled={isLoggingOut}>
+            <PressableScale style={styles.logoutButton} onPress={handleLogout} disabled={isLoggingOut}>
               <Text style={styles.logoutText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         </SafeAreaView>
       </Animated.View>

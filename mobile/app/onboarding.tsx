@@ -3,8 +3,9 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import type { ThemePalette } from "../theme/colors";
@@ -62,9 +63,9 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <Pressable onPress={finish} style={styles.skipButton} accessibilityRole="button" accessibilityLabel="Skip">
+      <PressableScale onPress={finish} style={styles.skipButton} accessibilityRole="button" accessibilityLabel="Skip">
         <Text style={styles.skipText}>Skip</Text>
-      </Pressable>
+      </PressableScale>
 
       <View style={styles.content}>
         <View style={styles.iconCircle}>
@@ -83,14 +84,14 @@ export default function OnboardingScreen() {
         ))}
       </View>
 
-      <Pressable
+      <PressableScale
         style={styles.nextButton}
         onPress={handleNext}
         accessibilityRole="button"
         accessibilityLabel={isLastSlide ? "Get Started" : "Next"}
       >
         <Text style={styles.nextButtonText}>{isLastSlide ? "Get Started" : "Next"}</Text>
-      </Pressable>
+      </PressableScale>
     </SafeAreaView>
   );
 }

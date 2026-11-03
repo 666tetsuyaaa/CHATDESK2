@@ -54,7 +54,8 @@ function RootNavigator() {
   // imperatively above via router.replace(), not by adding/removing
   // screens from this list.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    // ios_from_right gives Android the same smooth slide iOS has by default.
+    <Stack screenOptions={{ headerShown: false, animation: "ios_from_right" }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="login" />

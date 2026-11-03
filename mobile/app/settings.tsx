@@ -2,8 +2,9 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import type { ThemePalette } from "../theme/colors";
@@ -28,14 +29,14 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <Pressable
+        <PressableScale
           onPress={() => router.back()}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
           <MaterialIcons name="arrow-back" size={24} color={colors.accentText} />
-        </Pressable>
+        </PressableScale>
         <Text style={styles.title}>Settings</Text>
         <View style={{ width: 24 }} />
       </View>
@@ -72,9 +73,9 @@ export default function SettingsScreen() {
           <Text style={styles.rowValue}>{appVersion}</Text>
         </View>
 
-        <Pressable style={styles.logoutButton} onPress={handleLogout} disabled={isLoggingOut}>
+        <PressableScale style={styles.logoutButton} onPress={handleLogout} disabled={isLoggingOut}>
           <Text style={styles.logoutText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
     </SafeAreaView>
   );

@@ -1,5 +1,6 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { Tabs } from "expo-router";
+import { useWindowDimensions } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 
@@ -10,6 +11,7 @@ import { useTicketBadge } from "../../context/TicketBadgeContext";
 export default function TabsLayout() {
   const { colors } = useTheme();
   const { unseenCount } = useTicketBadge();
+  const { width } = useWindowDimensions();
   // Same colors as the tint options below. Taken from the theme rather than
   // the tab bar's `color` arg, whose type (RN 0.88 ColorValue) the icon
   // library doesn't accept.
@@ -25,12 +27,17 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
         },
-        tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: 11 },
+        // A point smaller on narrow phones (iPhone SE size) so "Announcements"
+        // isn't cut off.
+        tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: width < 360 ? 10 : 11 },
         // Without this, the tab bar stays reserved at the bottom when the
         // keyboard opens, which throws off each screen's own
         // KeyboardAvoidingView math - the chat input in particular would
         // end up hidden behind the keyboard instead of rising above it.
         tabBarHideOnKeyboard: true,
+        // Screens slide a little and cross-fade when switching tabs instead
+        // of snapping.
+        animation: "shift",
       }}
     >
       <Tabs.Screen

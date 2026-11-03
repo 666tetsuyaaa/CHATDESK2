@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createUser, deleteUser, getUsers, updateUser } from "../api/users.js";
 import { getOffices } from "../api/offices.js";
+import ScrollTable from "../components/ScrollTable.jsx";
 import UserFormModal from "../components/UserFormModal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
@@ -192,8 +193,8 @@ export default function UserManagement() {
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -319,7 +320,7 @@ export default function UserManagement() {
             )}
           </tbody>
         </table>
-        </div>
+        </ScrollTable>
         <Pagination page={page} count={totalCount} onPageChange={setPage} />
       </div>
 

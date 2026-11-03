@@ -5,6 +5,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Modal,
   Pressable,
@@ -16,6 +17,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NavMenu } from "../../components/nav-menu";
+import { PressableScale } from "../../components/pressable-scale";
 import { SkeletonTicketRow } from "../../components/skeleton";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
@@ -187,16 +189,16 @@ export default function TicketsScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <Pressable
+        <PressableScale
           onPress={() => setIsMenuOpen(true)}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Open menu"
         >
           <MaterialIcons name="menu" size={26} color={colors.accentText} />
-        </Pressable>
+        </PressableScale>
         <Text style={styles.title}>Tickets</Text>
-        <Pressable
+        <PressableScale
           onPress={() => router.push("/profile")}
           hitSlop={12}
           style={styles.avatar}
@@ -208,7 +210,7 @@ export default function TicketsScreen() {
           ) : (
             <Text style={styles.avatarText}>{userInitial}</Text>
           )}
-        </Pressable>
+        </PressableScale>
       </View>
 
       <View style={styles.filterRow} accessibilityRole="tablist">
@@ -220,7 +222,7 @@ export default function TicketsScreen() {
         ).map((option) => {
           const isActive = filter === option.key;
           return (
-            <Pressable
+            <PressableScale
               key={option.key}
               style={[styles.filterChip, isActive && styles.filterChipActive]}
               onPress={() => {
@@ -234,7 +236,7 @@ export default function TicketsScreen() {
                 {option.label}
                 {tickets ? ` (${option.count})` : ""}
               </Text>
-            </Pressable>
+            </PressableScale>
           );
         })}
       </View>
@@ -287,13 +289,16 @@ export default function TicketsScreen() {
             <Text style={[styles.columnHeader, styles.statusColumn]}>Status</Text>
             <Text style={[styles.columnHeader, styles.actionColumn]}>Action</Text>
           </View>
-          <ScrollView
+          {/* FlatList only draws the rows on screen, so long ticket lists
+              scroll without stutter. */}
+          <FlatList
+            data={visibleTickets}
+            keyExtractor={(ticket) => String(ticket.ticket_id)}
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
-          >
-            {visibleTickets.map((ticket) => {
+            renderItem={({ item: ticket }) => {
               const isResolved = ticket.status === "resolved";
               return (
-                <View key={ticket.ticket_id} style={styles.row}>
+                <View style={styles.row}>
                   <View style={styles.labelColumn}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
                       {ticket.title}
@@ -314,19 +319,19 @@ export default function TicketsScreen() {
                     )}
                   </View>
                   <View style={styles.actionColumn}>
-                    <Pressable
+                    <PressableScale
                       style={styles.viewButton}
                       onPress={() => handleView(ticket)}
                       accessibilityRole="button"
                       accessibilityLabel={`View ${ticket.title}, ticket ${ticket.ticket_code}`}
                     >
                       <Text style={styles.viewButtonText}>View</Text>
-                    </Pressable>
+                    </PressableScale>
                   </View>
                 </View>
               );
-            })}
-          </ScrollView>
+            }}
+          />
         </>
       )}
 
@@ -418,9 +423,9 @@ export default function TicketsScreen() {
                   ) : null}
                 </ScrollView>
 
-                <Pressable style={styles.modalCloseButton} onPress={() => setViewingTicket(null)}>
+                <PressableScale style={styles.modalCloseButton} onPress={() => setViewingTicket(null)}>
                   <Text style={styles.modalCloseButtonText}>Close</Text>
-                </Pressable>
+                </PressableScale>
               </>
             ) : null}
           </Pressable>
