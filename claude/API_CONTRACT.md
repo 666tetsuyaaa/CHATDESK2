@@ -287,6 +287,14 @@ Response 201 (AI Failed, Ticket Escalation Triggered):
 #   duplicate_ticket      - same concern as one of the student's open tickets (200);
 #                           no new ticket, ticket_id/ticket_code/ticket_title point to the existing one
 # is_answer: true only for FAQ answers - the only replies that can be rated.
+# How a message is decided: plain small talk ("hi", "thanks po") and an FAQ's
+# exact question are answered with no AI call. Next, smart FAQ matching
+# compares the message by meaning with every FAQ question (OpenAI embeddings,
+# stored on each FAQ and recomputed when its question changes); a clear match
+# is answered straight away. Everything else goes to the AI classifier.
+# Backend settings: FAQ_SEMANTIC_MATCHING (default on), FAQ_MATCH_THRESHOLD
+# (0.70), FAQ_MATCH_MARGIN (0.10 ahead of the next FAQ). Try messages with
+# `python manage.py embed_faqs --try "..."`.
 
 ### PATCH /api/v1/chat/logs/{log_id}/feedback/
 Auth required (Student, own logs only - others 404).
@@ -312,6 +320,33 @@ Admin only. Returns raw logs for system analytics.
 # Filters: ?intent=, ?user_id=, ?is_escalated=, ?date_from=, ?date_to=,
 # ?college=<key from /colleges/>, and (Super Admin) ?office=<id> or
 # ?office=unassigned. ticket_code is null for logs without a ticket.
+
+### GET /api/v1/inquiry-logs/unanswered/
+Admin only (students 403). Questions the chatbot couldn't answer from an FAQ
+(sent to staff, or too unclear to match), grouped by similar wording, most
+asked first. For the admin "Unanswered Questions" page.
+Optional ?days= (default 90, 1-365) and (Super Admin) ?office=<id> or
+?office=unassigned. Office Admins see only their own office's questions.
+{
+  "days": 90,
+  "total_questions": 7,
+  "groups": [
+    {
+      "question": "How do I get a good moral certificate?",
+      "count": 3,
+      "examples": ["How do I get a good moral certificate?", "how to get good moral cert"],
+      "last_asked_at": "2026-11-07T08:20:00Z",
+      "office_id": 5,
+      "office_name": "Office of Student Affairs (OSA)",
+      "ticket_codes": ["OSA110726001", "OSA110526003"]
+    }
+  ]
+}
+# question: the wording asked most often in the group. "talk to staff"-style
+# requests are left out. A group is hidden once an FAQ with a matching
+# question is added or edited after it was last asked (it shows again if
+# students keep asking after that). office_id/office_name: the office most of
+# the group's questions went to, or null.
 ## Ticket Escalation
 {
   "ticket_id": 890,
@@ -331,7 +366,11 @@ Admin only. Returns raw logs for system analytics.
   "is_ai_resolved": false,
   "created_at": "2026-06-15T10:16:00Z",
   "reopened_at": null,
-  "resolved_at": null
+  "resolved_at": null,
+  "waiting_since": "2026-06-15T10:16:00Z",
+  "is_overdue": false,
+  "message_count": 2,
+  "last_staff_message_at": "2026-06-15T11:02:00Z"
 }
 # ticket_code: office code + Manila date (MMDDYY) + that office's 3-digit
 # number for the day, e.g. OSA103126001 = OSA's first ticket on Oct 31, 2026.
@@ -352,14 +391,24 @@ Admin only. Returns raw logs for system analytics.
 # can edit it via PATCH. conversation_context: the chat turns right before an
 # AI escalation, read-only, empty for manual tickets. Neither is on the
 # original ERD - flagged for the next ERD revision.
+# waiting_since: when the ticket last started waiting on staff - on creation,
+# on a follow-up request, and when a student message moves it back to
+# pending. Null for chatbot-answered tickets. is_overdue: a staff ticket still
+# "pending" more than TICKET_OVERDUE_DAYS (default 2) after waiting_since.
+# "active" means staff asked the student something, so it is never overdue.
+# message_count / last_staff_message_at: the ticket's conversation (see
+# /messages/ below); the app uses last_staff_message_at for its "new reply"
+# badge. None of these are on the original ERD.
 
 Method,Path,Roles,Notes
-GET,/api/v1/tickets/,admin,"List tickets. ?status=, ?category=, ?source=staff|ai (staff = needs/needed a person, ai = chatbot-answered), ?college=<key>, ?search= (title, question or ticket code), and (Super Admin) ?office=<id> or ?office=unassigned."
+GET,/api/v1/tickets/,admin,"List tickets. ?status=, ?category=, ?source=staff|ai (staff = needs/needed a person, ai = chatbot-answered), ?college=<key>, ?overdue=true, ?search= (title, question or ticket code), and (Super Admin) ?office=<id> or ?office=unassigned."
 GET,/api/v1/tickets/,student,"Student's own tickets (staff and chatbot-answered). ?source=staff|ai."
 POST,/api/v1/tickets/,student,Manual ticket creation (if student bypasses AI).
 GET,/api/v1/tickets/{ticket_id}/,all,Detail view (students can only view their own).
-PATCH,/api/v1/tickets/{ticket_id}/,admin,"Update ticket status, title, subject_category, or add resolution notes (resolved_by/resolved_at are set automatically on resolve). Resolving requires a non-empty resolution (400 under details.resolution); resolution max 5000. Replying to an AI-answered ticket moves it to staff (is_ai_resolved becomes false)."
+PATCH,/api/v1/tickets/{ticket_id}/,admin,"Update ticket status, title, subject_category, or add resolution notes (resolved_by/resolved_at are set automatically on resolve). Resolving requires a non-empty resolution (400 under details.resolution); resolution max 5000. Replying to an AI-answered ticket moves it to staff (is_ai_resolved becomes false). Changing status to resolved emails the student the ticket code, their question and the answer (sent in the background after saving; a failed email doesn't undo the answer). Returns the full ticket."
 POST,/api/v1/tickets/{ticket_id}/follow-up/,student,"""I still need help"" on an AI-answered ticket (own tickets only - others 404). Optional { ""message"": ""..."" } (max 1000). Reopens it as pending for staff with the same ticket_code, sets reopened_at, moves the chatbot's answer into conversation_context. 400 if the ticket is already with staff. Returns the ticket."
+GET,/api/v1/tickets/{ticket_id}/messages/,all,"The ticket's conversation between student and staff, oldest first: [{ ""message_id"", ""ticket"", ""sender_role"": ""student""|""staff"", ""sender_name"", ""body"", ""created_at"" }]. Same access as the ticket (others 404). Students see staff as ""<office name> staff""; admins see the staff member's name."
+POST,/api/v1/tickets/{ticket_id}/messages/,all,"{ ""body"": ""..."" } (required, max 2000). Staff message: a pending ticket becomes active (waiting on the student) and the student is emailed the message. Student message: the ticket goes back to pending for staff (a resolved one is reopened, resolved_at cleared; a ticket already pending keeps its waiting_since). Students get 400 on a chatbot-answered ticket - they use follow-up first. Throttled 10/min per user. Returns the message (201)."
 
 ## Analytics (Admin Dashboard)
 
@@ -384,6 +433,7 @@ Admin only. Optional ?date_from=, ?date_to= (YYYY-MM-DD), ?college=<key>, and
   ],
   "tickets_by_status": { "pending": 5, "active": 3, "resolved": 26 },
   "ai_answered_tickets": 94,
+  "overdue_tickets": 2,
   "avg_resolution_seconds": 183600,
   "offices": [
     {
@@ -394,6 +444,7 @@ Admin only. Optional ?date_from=, ?date_to= (YYYY-MM-DD), ?college=<key>, and
       "active": 1,
       "resolved": 12,
       "ai_answered": 40,
+      "overdue": 2,
       "oldest_pending_at": "2026-10-27T09:15:00Z",
       "oldest_pending_code": "OSA102726002",
       "avg_resolution_seconds": 97200
@@ -407,8 +458,17 @@ Admin only. Optional ?date_from=, ?date_to= (YYYY-MM-DD), ?college=<key>, and
 # tickets_by_status, resolution_rate and avg_resolution_seconds cover staff
 # tickets only; chatbot-answered tickets are counted in ai_answered_tickets.
 # offices: one row per office (plus an "Unassigned" row with office_id null
-# when it has tickets), most pending work first; Office Admins get only their
-# own office. Resolution times are from reopened_at (if any) or created_at.
+# when it has tickets), most overdue then most pending work first; Office
+# Admins get only their own office. Resolution times are from reopened_at (if
+# any) or created_at. overdue / overdue_tickets: see is_overdue under Tickets.
+
+## Scheduled job: daily overdue reminder
+`python manage.py send_overdue_reminders` (add --dry-run to preview) emails
+each Office Admin the list of their office's overdue tickets ("You have 3
+ChatDesk tickets waiting"), and each Super Admin the overdue tickets with no
+office yet. Nothing is sent when there are none. Run it once a day from the
+host's scheduler (cron, or a Cron Job / Scheduled Task on the hosting
+platform). ADMIN_DASHBOARD_URL in backend/.env adds a link to the dashboard.
 
 ## Other endpoint behavior notes
 - Offices have a "code" (2-10 uppercase letters/numbers, unique) that starts

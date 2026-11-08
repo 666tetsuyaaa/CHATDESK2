@@ -1,10 +1,14 @@
+from datetime import timedelta
+
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from faqs.models import Faq
 from tickets.services import create_ai_answered_ticket, create_ticket_from_log
 from users.colleges import filter_by_college
 from users.models import User
@@ -13,6 +17,23 @@ from users.permissions import IsOfficeStaff, IsStudent
 from .models import ESCALATED_INTENT, InquiryLog
 from .serializers import ChatAskSerializer, InquiryLogFeedbackSerializer, InquiryLogSerializer
 from .services import classify_message, duplicate_result, exact_repeat_ticket, format_turns
+from .unanswered import MAX_LOGS, UNANSWERED_INTENTS, group_unanswered
+
+UNANSWERED_DEFAULT_DAYS = 90
+
+
+def logs_for_office_scope(qs, user, office_param):
+    """Office Admins: logs tagged with their office (picked in the mobile
+    category selector) or that escalated into a ticket routed there - a log
+    with neither can't be attributed to any one office. Super Admin:
+    everything, or ?office=<id> / ?office=unassigned."""
+    if user.role == user.Role.OFFICE_ADMIN:
+        return qs.filter(Q(office=user.office) | Q(ticket__office=user.office)).distinct()
+    if office_param == "unassigned":
+        return qs.filter(office__isnull=True).filter(Q(ticket__isnull=True) | Q(ticket__office__isnull=True))
+    if office_param:
+        return qs.filter(Q(office_id=office_param) | Q(ticket__office_id=office_param)).distinct()
+    return qs
 
 
 class ChatAskView(APIView):
@@ -104,26 +125,16 @@ class InquiryLogListView(generics.ListAPIView):
     (the student picked it in the mobile category selector) or that
     escalated into a ticket later routed to their office - a log with
     neither has no way to be attributed to any one office.
-    ?intent=, ?user_id=, ?is_escalated=, ?date_from=, ?date_to=, ?college=
-    and (Super Admin) ?office= filter. Paginated."""
+    ?intent=, ?user_id=, ?student= (name or email), ?is_escalated=,
+    ?date_from=, ?date_to=, ?college= and (Super Admin) ?office= filter.
+    Paginated."""
 
     serializer_class = InquiryLogSerializer
     permission_classes = [IsOfficeStaff]
 
     def get_queryset(self):
         qs = InquiryLog.objects.select_related("user", "office", "ticket")
-        user = self.request.user
-        if user.role == user.Role.OFFICE_ADMIN:
-            qs = qs.filter(Q(office=user.office) | Q(ticket__office=user.office)).distinct()
-        else:
-            # ?office=<id> or ?office=unassigned - Super Admin only. A log
-            # belongs to an office if the student picked it or its ticket
-            # was routed there.
-            office = self.request.query_params.get("office")
-            if office == "unassigned":
-                qs = qs.filter(office__isnull=True).filter(Q(ticket__isnull=True) | Q(ticket__office__isnull=True))
-            elif office:
-                qs = qs.filter(Q(office_id=office) | Q(ticket__office_id=office)).distinct()
+        qs = logs_for_office_scope(qs, self.request.user, self.request.query_params.get("office"))
         qs = filter_by_college(qs, self.request.query_params.get("college"))
 
         intent = self.request.query_params.get("intent")
@@ -132,6 +143,13 @@ class InquiryLogListView(generics.ListAPIView):
         user_id = self.request.query_params.get("user_id")
         if user_id:
             qs = qs.filter(user_id=user_id)
+        student = (self.request.query_params.get("student") or "").strip()
+        if student:
+            qs = qs.filter(
+                Q(user__email__icontains=student)
+                | Q(user__first_name__icontains=student)
+                | Q(user__last_name__icontains=student)
+            )
         is_escalated = self.request.query_params.get("is_escalated")
         if is_escalated is not None:
             qs = qs.filter(is_escalated=is_escalated.lower() in ("1", "true", "yes"))
@@ -142,3 +160,36 @@ class InquiryLogListView(generics.ListAPIView):
         if date_to:
             qs = qs.filter(timestamp__date__lte=date_to)
         return qs
+
+    def get_serializer_context(self):
+        # FAQ questions for the readable intent labels, in one query.
+        context = super().get_serializer_context()
+        context["faq_questions"] = dict(Faq.objects.values_list("intent_keyword", "question_text"))
+        return context
+
+
+class UnansweredQuestionsView(APIView):
+    """GET /api/v1/inquiry-logs/unanswered/ - superadmin or office_admin.
+    The questions the chatbot couldn't answer from an FAQ (sent to staff,
+    or too unclear to match), grouped by similar wording, most asked first.
+    Questions an FAQ added or edited since now covers are left out.
+    ?days= (default 90, max 365) and, for Super Admin, ?office=."""
+
+    permission_classes = [IsOfficeStaff]
+
+    def get(self, request):
+        try:
+            days = min(max(int(request.query_params.get("days", UNANSWERED_DEFAULT_DAYS)), 1), 365)
+        except ValueError:
+            days = UNANSWERED_DEFAULT_DAYS
+        logs = InquiryLog.objects.filter(
+            detected_intent__in=UNANSWERED_INTENTS, timestamp__gte=timezone.now() - timedelta(days=days)
+        ).select_related("office", "ticket__office")
+        logs = logs_for_office_scope(logs, request.user, request.query_params.get("office"))
+        logs = list(logs.order_by("-timestamp")[:MAX_LOGS])
+
+        faqs = Faq.objects.all()
+        if request.user.role == User.Role.OFFICE_ADMIN:
+            faqs = faqs.filter(Q(office=request.user.office) | Q(office__isnull=True))
+        groups = group_unanswered(logs, faqs.only("question_text", "updated_at"))
+        return Response({"days": days, "total_questions": sum(g["count"] for g in groups), "groups": groups})

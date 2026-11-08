@@ -3,11 +3,41 @@ from rest_framework import serializers
 from offices.models import Office
 from users.colleges import college_for_course
 
-from .models import InquiryLog
+from .models import (
+    CLARIFICATION_INTENT,
+    CONVERSATIONAL_INTENT,
+    DUPLICATE_TICKET_INTENT,
+    ESCALATED_INTENT,
+    OFF_TOPIC_INTENT,
+    UNCLEAR_INTENT,
+    InquiryLog,
+)
+
+
+# What each non-FAQ outcome means, in words office staff use.
+INTENT_LABELS = {
+    ESCALATED_INTENT: "Sent to staff",
+    DUPLICATE_TICKET_INTENT: "Repeat of an open ticket",
+    CONVERSATIONAL_INTENT: "Small talk",
+    CLARIFICATION_INTENT: "Asked to clarify",
+    OFF_TOPIC_INTENT: "Off-topic",
+    UNCLEAR_INTENT: "Unclear message",
+}
+
+
+def intent_label(intent, faq_questions):
+    """A readable name for a detected intent: the fixed label above, or the
+    FAQ's own question when the chatbot answered from an FAQ."""
+    if intent in INTENT_LABELS:
+        return INTENT_LABELS[intent]
+    return faq_questions.get(intent) or intent.replace("_", " ").capitalize()
 
 
 class InquiryLogSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
+    user_email = serializers.EmailField(source="user.email", read_only=True)
+    user_name = serializers.SerializerMethodField()
+    intent_label = serializers.SerializerMethodField()
     office_name = serializers.CharField(source="office.name", read_only=True, default=None)
     student_college = serializers.SerializerMethodField()
     ticket_code = serializers.SerializerMethodField()
@@ -15,11 +45,17 @@ class InquiryLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = InquiryLog
         fields = [
-            "log_id", "user_id", "user_message", "detected_intent",
+            "log_id", "user_id", "user_email", "user_name", "user_message", "detected_intent", "intent_label",
             "chatbot_response", "is_escalated", "office", "office_name",
             "student_college", "ticket_code", "feedback", "timestamp",
         ]
         read_only_fields = fields
+
+    def get_user_name(self, log):
+        return f"{log.user.first_name} {log.user.last_name}".strip()
+
+    def get_intent_label(self, log):
+        return intent_label(log.detected_intent, self.context.get("faq_questions", {}))
 
     def get_student_college(self, log):
         college = college_for_course(log.user.course)

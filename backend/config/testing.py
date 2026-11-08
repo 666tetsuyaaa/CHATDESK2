@@ -40,11 +40,30 @@ class FakeOpenAI:
     """Stands in for the OpenAI client: returns preset classifier decisions
     (or raises) and counts calls, so tests never hit the real API."""
 
-    def __init__(self, *decisions, error=None):
-        self.decisions = list(decisions)
+    def __init__(self, *decisions, error=None, vectors=None, embedding_error=None):
+        self.decisions = list(decisions) or [{}]
         self.error = error
         self.calls = 0
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        # Embeddings: text -> vector; any other text gets DEFAULT_VECTOR.
+        self.vectors = vectors or {}
+        self.embedding_error = embedding_error
+        self.embedded = []
+        self.embeddings = SimpleNamespace(create=self._embed)
+
+    DEFAULT_VECTOR = [0.0, 0.0, 1.0]
+
+    def with_options(self, **kwargs):
+        return self
+
+    def _embed(self, model, input):
+        if self.embedding_error is not None:
+            raise self.embedding_error
+        self.embedded.extend(input)
+        return SimpleNamespace(data=[
+            SimpleNamespace(index=i, embedding=self.vectors.get(text, self.DEFAULT_VECTOR))
+            for i, text in enumerate(input)
+        ])
 
     def _create(self, **kwargs):
         self.calls += 1

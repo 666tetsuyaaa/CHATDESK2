@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 
 from inquiry_logs.models import DUPLICATE_TICKET_INTENT, NON_INQUIRY_INTENTS, InquiryLog
 from offices.models import Office
-from tickets.models import Ticket
+from tickets.models import Ticket, overdue_cutoff, overdue_filter
 from users.colleges import filter_by_college
 from users.permissions import IsOfficeStaff
 
@@ -31,7 +31,8 @@ def _average_seconds(rows):
 
 def _office_breakdown(tickets, offices, include_unassigned):
     """Per office: staff tickets by status, chatbot-answered tickets, the
-    oldest pending ticket, and average staff resolution time."""
+    oldest pending ticket, how many are overdue, and average staff
+    resolution time."""
     staff = tickets.filter(is_ai_resolved=False)
     status_counts = {}
     for row in staff.values("office_id", "status").annotate(count=Count("ticket_id")):
@@ -41,10 +42,14 @@ def _office_breakdown(tickets, offices, include_unassigned):
         for row in tickets.filter(is_ai_resolved=True).values("office_id").annotate(count=Count("ticket_id"))
     }
     oldest_pending = {}
+    overdue_counts = {}
+    cutoff = overdue_cutoff()
     for row in staff.filter(status=Ticket.Status.PENDING).values(
-        "office_id", "ticket_code", "created_at", "reopened_at"
+        "office_id", "ticket_code", "created_at", "reopened_at", "waiting_since"
     ):
-        waiting_since = _staff_clock_start(row)
+        waiting_since = row["waiting_since"] or _staff_clock_start(row)
+        if row["waiting_since"] and row["waiting_since"] < cutoff:
+            overdue_counts[row["office_id"]] = overdue_counts.get(row["office_id"], 0) + 1
         current = oldest_pending.get(row["office_id"])
         if current is None or waiting_since < current["since"]:
             oldest_pending[row["office_id"]] = {"since": waiting_since, "code": row["ticket_code"]}
@@ -64,6 +69,7 @@ def _office_breakdown(tickets, offices, include_unassigned):
             "active": status_counts.get((office_id, Ticket.Status.ACTIVE), 0),
             "resolved": status_counts.get((office_id, Ticket.Status.RESOLVED), 0),
             "ai_answered": ai_counts.get(office_id, 0),
+            "overdue": overdue_counts.get(office_id, 0),
             "oldest_pending_at": oldest["since"] if oldest else None,
             "oldest_pending_code": oldest["code"] if oldest else None,
             "avg_resolution_seconds": _average_seconds(resolved_rows.get(office_id, [])),
@@ -74,8 +80,8 @@ def _office_breakdown(tickets, offices, include_unassigned):
         unassigned = build(None, "Unassigned", None)
         if any(unassigned[key] for key in ("pending", "active", "resolved", "ai_answered")):
             rows.append(unassigned)
-    # Most pending work first, so an office falling behind is at the top.
-    rows.sort(key=lambda row: (-row["pending"], -row["active"], row["office_name"]))
+    # Overdue and pending work first, so an office falling behind is at the top.
+    rows.sort(key=lambda row: (-row["overdue"], -row["pending"], -row["active"], row["office_name"]))
     return rows
 
 
@@ -156,6 +162,7 @@ class AnalyticsOverviewView(APIView):
             "other_interactions": frequencies(logs.filter(detected_intent__in=OTHER_INTERACTION_INTENTS)),
             "tickets_by_status": tickets_by_status,
             "ai_answered_tickets": tickets.filter(is_ai_resolved=True).count(),
+            "overdue_tickets": tickets.filter(overdue_filter()).count(),
             "avg_resolution_seconds": _average_seconds(
                 staff_tickets.filter(status=Ticket.Status.RESOLVED).values("created_at", "reopened_at", "resolved_at")
             ),

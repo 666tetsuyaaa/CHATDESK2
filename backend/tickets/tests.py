@@ -1,7 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from io import StringIO
 from unittest import mock
 from zoneinfo import ZoneInfo
 
+from django.core import mail
+from django.core.management import call_command
+from django.test import override_settings
 from django.utils import timezone
 
 from config.testing import BaseAPITestCase, FakeOpenAI
@@ -233,3 +237,200 @@ class TicketAccessTests(BaseAPITestCase):
         self.assertEqual(self.ids(it_rows), {self.alice_ticket.ticket_id})
         self.assertEqual(it_rows.data["results"][0]["student_college"], "Information Technology & Computing")
         self.assertEqual(superadmin.get("/api/v1/tickets/", {"college": "nonsense"}).data["count"], 0)
+
+
+ANSWERED_ISSUE = 'Student asked: "How do I get my good moral certificate?" - AI could not resolve.'
+
+
+class TicketAnsweredEmailTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.student = self.make_user("student@example.com")
+        self.admin = self.client_for(self.make_user("osa@example.com", User.Role.OFFICE_ADMIN, self.office))
+        self.ticket = Ticket.objects.create(
+            user=self.student, office=self.office, subject_category="Certificates",
+            title="Good Moral Certificate", issue_description=ANSWERED_ISSUE,
+        )
+
+    def patch(self, payload):
+        with override_settings(REAL_EMAIL_ENABLED=True), self.captureOnCommitCallbacks(execute=True):
+            return self.admin.patch(f"/api/v1/tickets/{self.ticket.ticket_id}/", payload, format="json")
+
+    def test_resolving_emails_the_student_the_code_and_answer(self):
+        response = self.patch({"status": "resolved", "resolution": "Request it at the OSA window with your ID."})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        email = mail.outbox[0]
+        self.assertEqual(email.to, ["student@example.com"])
+        self.assertIn(self.ticket.ticket_code, email.subject)
+        self.assertIn("Request it at the OSA window with your ID.", email.body)
+        self.assertIn("How do I get my good moral certificate?", email.body)
+        self.assertNotIn("Student asked:", email.body)
+
+    def test_no_email_unless_the_ticket_becomes_resolved(self):
+        self.patch({"status": "active"})
+        self.assertEqual(len(mail.outbox), 0)
+        self.patch({"status": "resolved", "resolution": "Answer one."})
+        self.patch({"resolution": "Answer one, corrected."})
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_failed_email_does_not_undo_the_answer(self):
+        with mock.patch("users.services.send_mail", side_effect=OSError("Gmail down")):
+            response = self.patch({"status": "resolved", "resolution": "Answer."})
+        self.assertEqual(response.status_code, 200)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.RESOLVED)
+
+
+class OverdueTicketTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.other = Office.objects.create(name="Test Records", code="TRC")
+        self.student = self.make_user("student@example.com")
+        self.osa_admin = self.make_user("osa@example.com", User.Role.OFFICE_ADMIN, self.office)
+        self.records_admin = self.make_user("records@example.com", User.Role.OFFICE_ADMIN, self.other)
+        self.superadmin = self.make_user("super@example.com", User.Role.SUPERADMIN)
+
+    def aged(self, ticket, days):
+        Ticket.objects.filter(pk=ticket.pk).update(waiting_since=timezone.now() - timedelta(days=days))
+        ticket.refresh_from_db()
+        return ticket
+
+    def test_only_pending_staff_tickets_past_the_limit_are_overdue(self):
+        old = self.aged(make_ticket(self.student, self.office), 3)
+        new = self.aged(make_ticket(self.student, self.office), 1)
+        active = self.aged(make_ticket(self.student, self.office, status=Ticket.Status.ACTIVE), 5)
+        ai = self.aged(make_ticket(self.student, self.office, status=Ticket.Status.RESOLVED, is_ai_resolved=True), 5)
+        self.assertTrue(old.is_overdue)
+        for ticket in (new, active, ai):
+            self.assertFalse(ticket.is_overdue)
+
+        response = self.client_for(self.osa_admin).get("/api/v1/tickets/?overdue=true")
+        self.assertEqual([t["ticket_id"] for t in response.data["results"]], [old.ticket_id])
+        self.assertTrue(response.data["results"][0]["is_overdue"])
+
+    def test_new_tickets_start_waiting_and_follow_up_restarts_the_clock(self):
+        ticket = make_ticket(self.student, self.office)
+        self.assertIsNotNone(ticket.waiting_since)
+        ai = make_ticket(self.student, self.office, status=Ticket.Status.RESOLVED, is_ai_resolved=True, resolution="A")
+        self.assertIsNone(ai.waiting_since)
+        self.client_for(self.student).post(f"/api/v1/tickets/{ai.ticket_id}/follow-up/", {}, format="json")
+        ai.refresh_from_db()
+        self.assertEqual(ai.waiting_since, ai.reopened_at)
+        self.assertFalse(ai.is_overdue)
+
+    def test_analytics_counts_overdue_per_office(self):
+        self.aged(make_ticket(self.student, self.office), 3)
+        self.aged(make_ticket(self.student, self.office), 4)
+        make_ticket(self.student, self.other)
+        response = self.client_for(self.superadmin).get("/api/v1/analytics/overview/")
+        self.assertEqual(response.data["overdue_tickets"], 2)
+        rows = {row["office_name"]: row for row in response.data["offices"]}
+        self.assertEqual(rows["Test Student Affairs"]["overdue"], 2)
+        self.assertEqual(rows["Test Records"]["overdue"], 0)
+        self.assertEqual(response.data["offices"][0]["office_name"], "Test Student Affairs")
+
+    def test_daily_reminder_goes_to_each_office_admin_and_super_admin_for_unassigned(self):
+        osa_ticket = self.aged(make_ticket(self.student, self.office, title="Lost ID"), 3)
+        self.aged(make_ticket(self.student), 3)
+        make_ticket(self.student, self.other)  # not overdue yet
+        out = StringIO()
+        with override_settings(REAL_EMAIL_ENABLED=True):
+            call_command("send_overdue_reminders", stdout=out)
+        recipients = sorted(email.to[0] for email in mail.outbox)
+        self.assertEqual(recipients, ["osa@example.com", "super@example.com"])
+        osa_email = next(email for email in mail.outbox if email.to == ["osa@example.com"])
+        self.assertEqual(osa_email.subject, "You have 1 ChatDesk ticket waiting")
+        self.assertIn(osa_ticket.ticket_code, osa_email.body)
+        self.assertIn("2 sent", out.getvalue())
+
+    def test_dry_run_sends_nothing(self):
+        self.aged(make_ticket(self.student, self.office), 3)
+        out = StringIO()
+        with override_settings(REAL_EMAIL_ENABLED=True):
+            call_command("send_overdue_reminders", "--dry-run", stdout=out)
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertIn("To: osa@example.com", out.getvalue())
+
+
+class TicketMessageTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.other = Office.objects.create(name="Test Records", code="TRC")
+        self.student = self.make_user("student@example.com")
+        self.staff_user = self.make_user("osa@example.com", User.Role.OFFICE_ADMIN, self.office)
+        self.staff = self.client_for(self.staff_user)
+        self.me = self.client_for(self.student)
+        self.ticket = make_ticket(self.student, self.office, title="Scholarship Grade Requirement")
+        self.url = f"/api/v1/tickets/{self.ticket.ticket_id}/messages/"
+
+    def send(self, client, body):
+        with override_settings(REAL_EMAIL_ENABLED=True), self.captureOnCommitCallbacks(execute=True):
+            return client.post(self.url, {"body": body}, format="json")
+
+    def test_staff_question_waits_on_the_student_and_emails_them(self):
+        response = self.send(self.staff, "What year level are you in?")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["sender_role"], "staff")
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.ACTIVE)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("What year level are you in?", mail.outbox[0].body)
+        self.assertIn(self.ticket.ticket_code, mail.outbox[0].subject)
+
+    def test_student_reply_puts_it_back_in_the_staff_queue(self):
+        self.send(self.staff, "What year level are you in?")
+        response = self.send(self.me, "Second year.")
+        self.assertEqual(response.status_code, 201)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.PENDING)
+        self.assertEqual(len(mail.outbox), 1)  # students' messages don't email anyone
+
+        thread = self.me.get(self.url).data
+        self.assertEqual([m["body"] for m in thread], ["What year level are you in?", "Second year."])
+        # Students see the office, not the staff member's own name.
+        self.assertEqual(thread[0]["sender_name"], "Test Student Affairs staff")
+
+    def test_student_message_reopens_a_resolved_ticket(self):
+        Ticket.objects.filter(pk=self.ticket.pk).update(
+            status=Ticket.Status.RESOLVED, resolution="Answer", resolved_at=timezone.now(),
+        )
+        self.send(self.me, "That didn't work for me.")
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Ticket.Status.PENDING)
+        self.assertIsNone(self.ticket.resolved_at)
+        self.assertFalse(self.ticket.is_overdue)
+
+    def test_pending_ticket_keeps_its_overdue_clock_when_the_student_adds_more(self):
+        old = timezone.now() - timedelta(days=3)
+        Ticket.objects.filter(pk=self.ticket.pk).update(waiting_since=old)
+        self.send(self.me, "Any update?")
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.waiting_since, old)
+        self.assertTrue(self.ticket.is_overdue)
+
+    def test_student_cannot_message_a_chatbot_answered_ticket(self):
+        Ticket.objects.filter(pk=self.ticket.pk).update(status=Ticket.Status.RESOLVED, is_ai_resolved=True)
+        response = self.send(self.me, "Hello?")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(self.ticket.messages.exists())
+
+    def test_others_cannot_read_or_write_the_thread(self):
+        other_student = self.client_for(self.make_user("other@example.com"))
+        other_office = self.client_for(self.make_user("records@example.com", User.Role.OFFICE_ADMIN, self.other))
+        for client in (other_student, other_office):
+            self.assertEqual(client.get(self.url).status_code, 404)
+            self.assertEqual(self.send(client, "hi").status_code, 404)
+
+    def test_blank_message_is_rejected(self):
+        self.assertEqual(self.send(self.me, "   ").status_code, 400)
+
+    def test_ticket_list_shows_message_count_and_latest_staff_reply(self):
+        self.send(self.staff, "What year level are you in?")
+        self.send(self.me, "Second year.")
+        row = self.me.get("/api/v1/tickets/").data["results"][0]
+        self.assertEqual(row["message_count"], 2)
+        self.assertIsNotNone(row["last_staff_message_at"])

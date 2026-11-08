@@ -17,6 +17,7 @@ from openai import OpenAI
 from faqs.models import Faq
 from tickets.models import FALLBACK_TICKET_TITLE, Ticket
 
+from . import matching
 from .models import (
     CLARIFICATION_INTENT,
     CONVERSATIONAL_INTENT,
@@ -70,6 +71,14 @@ DUPLICATE_TICKET_REPLY = (
 )
 
 UNCLEAR_RESULT = {"detected_intent": UNCLEAR_INTENT, "reply": UNCLEAR_REPLY}
+
+# Whole messages that are plainly small talk - answered without any AI call.
+SMALL_TALK = {
+    "hi", "hello", "hey", "helo", "hii", "good morning", "good afternoon", "good evening", "good day",
+    "thanks", "thank you", "thank you so much", "thanks a lot", "ty", "tnx", "salamat", "maraming salamat",
+    "ok", "okay", "ok thanks", "okay thanks", "got it", "noted", "sige", "sige salamat",
+}
+POLITE_SUFFIX = re.compile(r"\s+(po|poh|din|rin)$")
 
 TICKET_TITLE_MAX_LENGTH = 60
 MAX_CLARIFY_SUGGESTIONS = 3
@@ -164,6 +173,11 @@ def _normalize_question(text: str) -> str:
     """Case, spacing and punctuation-insensitive form, so a tapped quick
     action or a typed copy of an FAQ question matches it exactly."""
     return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def _is_small_talk(message: str) -> bool:
+    text = POLITE_SUFFIX.sub("", _normalize_question(message))
+    return text in SMALL_TALK
 
 
 def _faq_result(faq) -> dict:
@@ -272,6 +286,9 @@ def classify_message(message: str, office=None, history=None, user=None) -> dict
     if sum(ch.isalnum() for ch in message) < 2:
         return UNCLEAR_RESULT
 
+    if _is_small_talk(message):
+        return {"detected_intent": CONVERSATIONAL_INTENT, "reply": FOLLOW_UP_REPLY if history else GREETING_REPLY}
+
     open_tickets = _open_tickets_for(user)
 
     candidate_faqs = Faq.objects.all()
@@ -287,6 +304,12 @@ def classify_message(message: str, office=None, history=None, user=None) -> dict
     for faq in faqs_by_keyword.values():
         if _normalize_question(faq.question_text) == normalized_message:
             return _faq_result(faq)
+
+    # A clear match by meaning is answered straight away; anything less
+    # clear goes on to the classifier, which can also ask "did you mean...?".
+    clear_faq = matching.clear_match(_client, message, list(faqs_by_keyword.values()), history)
+    if clear_faq is not None:
+        return _faq_result(clear_faq)
 
     def answer_preview(faq):
         text = " ".join(faq.answer_content.split())

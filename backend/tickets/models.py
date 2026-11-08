@@ -1,5 +1,9 @@
+import re
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from inquiry_logs.models import InquiryLog
@@ -7,6 +11,18 @@ from inquiry_logs.models import InquiryLog
 FALLBACK_TICKET_TITLE = "General Inquiry"
 # Ticket-code prefix for tickets with no office yet.
 UNASSIGNED_OFFICE_CODE = "GEN"
+# issue_description is 'Student asked: "..." - <outcome>.' for chat tickets.
+ISSUE_PATTERN = re.compile(r'^Student asked: "(.*)" - (?:AI could not resolve|Answered by ChatDesk)\.$', re.S)
+
+
+def overdue_cutoff():
+    return timezone.now() - timedelta(days=settings.TICKET_OVERDUE_DAYS)
+
+
+def overdue_filter():
+    """Staff tickets waiting on staff (pending) for longer than
+    TICKET_OVERDUE_DAYS. An "active" ticket is waiting on the student."""
+    return Q(is_ai_resolved=False, status=Ticket.Status.PENDING, waiting_since__lt=overdue_cutoff())
 
 
 class TicketSequence(models.Model):
@@ -84,6 +100,10 @@ class Ticket(models.Model):
     # When the student asked for follow-up on an AI-answered ticket; staff
     # resolution time is measured from here instead of created_at.
     reopened_at = models.DateTimeField(null=True, blank=True)
+    # When the ticket last started waiting on staff: on creation, on a
+    # follow-up request, and whenever the student replies. Overdue is
+    # measured from here (see overdue_filter).
+    waiting_since = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
 
@@ -97,4 +117,46 @@ class Ticket(models.Model):
     def save(self, *args, **kwargs):
         if not self.ticket_code:
             self.ticket_code = next_ticket_code(self.office, self.created_at)
+        if self.waiting_since is None and self.status == self.Status.PENDING:
+            self.waiting_since = timezone.now()
         super().save(*args, **kwargs)
+
+    @property
+    def is_overdue(self):
+        return (
+            not self.is_ai_resolved
+            and self.status == self.Status.PENDING
+            and self.waiting_since is not None
+            and self.waiting_since < overdue_cutoff()
+        )
+
+    @property
+    def student_question(self):
+        """The student's own words, without the "Student asked: ..." wrapper."""
+        match = ISSUE_PATTERN.match(self.issue_description)
+        return match.group(1) if match else self.issue_description
+
+
+class TicketMessage(models.Model):
+    """One message in a ticket's conversation between the student and
+    staff - for questions back and forth before (or after) the answer."""
+
+    class Sender(models.TextChoices):
+        STUDENT = "student", "Student"
+        STAFF = "staff", "Staff"
+
+    message_id = models.BigAutoField(primary_key=True)
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="messages")
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="ticket_messages"
+    )
+    sender_role = models.CharField(max_length=10, choices=Sender.choices)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tbl_ticket_message"
+        ordering = ["created_at", "message_id"]
+
+    def __str__(self):
+        return f"{self.sender_role} message on ticket {self.ticket_id}"

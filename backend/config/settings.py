@@ -138,6 +138,7 @@ REST_FRAMEWORK = {
         "password_reset_confirm": "30/hour",
         "verify_email_resend": "5/hour",
         "chat": "20/min",
+        "ticket_messages": "10/min",
     },
 }
 
@@ -163,6 +164,24 @@ CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
 
 OPENAI_API_KEY = config("OPENAI_API_KEY")
 
+# Smart FAQ matching (inquiry_logs/matching.py): before the slower AI
+# classifier runs, the student's message is compared to every FAQ question
+# by meaning. A match this close (cosine similarity, 0-1) that also beats the
+# runner-up by FAQ_MATCH_MARGIN is answered straight away. Off in tests so
+# they never call OpenAI; those tests switch it on with a fake client.
+# Calibrated 2026-11-08 with `manage.py embed_faqs --try`: rewordings of an
+# FAQ scored 0.70-0.89, related-but-different questions at most 0.65.
+FAQ_SEMANTIC_MATCHING = config("FAQ_SEMANTIC_MATCHING", default=True, cast=bool) and not RUNNING_TESTS
+FAQ_EMBEDDING_MODEL = config("FAQ_EMBEDDING_MODEL", default="text-embedding-3-small")
+FAQ_MATCH_THRESHOLD = config("FAQ_MATCH_THRESHOLD", default=0.70, cast=float)
+FAQ_MATCH_MARGIN = config("FAQ_MATCH_MARGIN", default=0.10, cast=float)
+
+# A staff ticket still waiting for staff after this many days is flagged
+# Overdue and listed in the daily reminder (send_overdue_reminders).
+TICKET_OVERDUE_DAYS = config("TICKET_OVERDUE_DAYS", default=2, cast=int)
+# Linked in the daily reminder email, e.g. https://admin.chatdesk.example.
+ADMIN_DASHBOARD_URL = config("ADMIN_DASHBOARD_URL", default="").rstrip("/")
+
 # Gmail SMTP - used to email the "Forgot Password" reset code and the
 # registration email-verification link (users/views.py, users/services.py).
 # Needs a Gmail App Password, not the account's normal login password -
@@ -186,6 +205,10 @@ REAL_EMAIL_ENABLED = bool(
 # API response so the flows stay testable - but only in DEBUG, never on a
 # real deployment (that would let anyone reset anyone's password).
 EMAIL_DEV_FALLBACK = DEBUG and not REAL_EMAIL_ENABLED
+# Ticket notification emails (tickets/notifications.py) are sent on a
+# background thread so a slow Gmail never holds up the staff member's
+# request. Tests send them inline to check what went out.
+SEND_EMAIL_IN_BACKGROUND = not RUNNING_TESTS
 
 # Base for links inside emails (verification). Falls back to the address the
 # request came in on, which is usually a LAN IP that only works on the same
