@@ -13,17 +13,32 @@ export function formatManila(iso) {
   return iso ? manilaFormat.format(new Date(iso)) : "—";
 }
 
+const manilaDateFormat = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+
+/** "Sep 8, 2026" - the same style as formatManila, without the time. */
+export function formatManilaDate(iso) {
+  return iso ? manilaDateFormat.format(new Date(iso)) : "—";
+}
+
 function plural(count, unit) {
   return `${count} ${unit}${count === 1 ? "" : "s"}`;
 }
 
-/** 183600 -> "2 days 3 hours"; 300 -> "5 minutes"; 20 -> "under a minute". */
+/** 5,690,000 -> "65 days"; 100800 -> "1 day 4 hours"; 300 -> "5 minutes";
+ * 20 -> "under a minute". Hours are dropped from 2 days on - "65 days 19
+ * hours" is more precision than anyone reads. */
 export function formatDuration(seconds) {
   if (seconds == null) return "—";
   const total = Math.max(0, Math.round(seconds));
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
+  if (days >= 2) return plural(days, "day");
   if (days) return hours ? `${plural(days, "day")} ${plural(hours, "hour")}` : plural(days, "day");
   if (hours) return minutes ? `${plural(hours, "hour")} ${plural(minutes, "minute")}` : plural(hours, "hour");
   if (minutes) return plural(minutes, "minute");

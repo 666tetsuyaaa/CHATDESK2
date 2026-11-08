@@ -2,21 +2,26 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import type { ScrollViewInstance } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NavMenu } from "../../components/nav-menu";
+import { FormattedAnswer } from "../../components/formatted-answer";
 import { PressableScale } from "../../components/pressable-scale";
 import { SkeletonTicketRow } from "../../components/skeleton";
 import { useAuth } from "../../context/AuthContext";
@@ -38,11 +43,41 @@ type Ticket = {
   created_at: string;
   reopened_at: string | null;
   resolved_at: string | null;
+  message_count?: number;
+  last_staff_message_at?: string | null;
+};
+
+type TicketMessage = {
+  message_id: number;
+  sender_role: "student" | "staff";
+  sender_name: string;
+  body: string;
+  created_at: string;
 };
 
 type TicketFilter = "staff" | "ai";
 
+const MESSAGE_MAX_LENGTH = 2000;
+
 const seenTicketsKey = (userId: number) => `chatdesk_seen_resolved_tickets_${userId}`;
+// ticket id -> when the student last opened it, so a newer staff message
+// shows on the tab badge.
+const seenMessagesKey = (userId: number) => `chatdesk_seen_ticket_messages_${userId}`;
+
+async function readJson<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const stored = await AsyncStorage.getItem(key);
+    return stored ? (JSON.parse(stored) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function hasUnreadStaffMessage(ticket: Ticket, seenAt: Record<string, string>) {
+  if (!ticket.last_staff_message_at) return false;
+  const lastSeen = seenAt[String(ticket.ticket_id)];
+  return !lastSeen || new Date(ticket.last_staff_message_at) > new Date(lastSeen);
+}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
@@ -72,6 +107,14 @@ export default function TicketsScreen() {
   const [filter, setFilter] = useState<TicketFilter>("staff");
   const [isRequestingFollowUp, setIsRequestingFollowUp] = useState(false);
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [thread, setThread] = useState<TicketMessage[]>([]);
+  const [threadFailed, setThreadFailed] = useState(false);
+  const [reply, setReply] = useState("");
+  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [seenMessages, setSeenMessages] = useState<Record<string, string>>({});
+  const modalScrollRef = useRef<ScrollViewInstance>(null);
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
   const staffTickets = tickets?.filter((t) => !t.is_ai_resolved) ?? [];
@@ -80,19 +123,87 @@ export default function TicketsScreen() {
 
   const updateBadgeFromTickets = async (rows: Ticket[]) => {
     if (!currentUser) return;
-    let seenIds: number[] = [];
-    try {
-      const stored = await AsyncStorage.getItem(seenTicketsKey(currentUser.user_id));
-      seenIds = stored ? JSON.parse(stored) : [];
-    } catch {
-      seenIds = [];
-    }
-    const seenSet = new Set(seenIds);
+    const seenSet = new Set(await readJson<number[]>(seenTicketsKey(currentUser.user_id), []));
+    const seenAt = await readJson<Record<string, string>>(seenMessagesKey(currentUser.user_id), {});
+    setSeenMessages(seenAt);
     // Only staff replies are news - ChatDesk answers were already seen in chat.
     const unseen = rows.filter(
-      (t) => t.status === "resolved" && !t.is_ai_resolved && !seenSet.has(t.ticket_id)
+      (t) =>
+        (t.status === "resolved" && !t.is_ai_resolved && !seenSet.has(t.ticket_id)) ||
+        hasUnreadStaffMessage(t, seenAt)
     ).length;
     setUnseenCount(unseen);
+  };
+
+  // Lift the ticket card above the keyboard while replying (same approach
+  // as the chat screen - see the comment there).
+  useEffect(() => {
+    const isIOS = Platform.OS === "ios";
+    const showSub = Keyboard.addListener(isIOS ? "keyboardWillShow" : "keyboardDidShow", (e) =>
+      setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(isIOS ? "keyboardWillHide" : "keyboardDidHide", () =>
+      setKeyboardHeight(0)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const loadThread = async (ticketId: number) => {
+    setThreadFailed(false);
+    try {
+      const { data } = await axiosClient.get<TicketMessage[]>(`/tickets/${ticketId}/messages/`);
+      setThread(data);
+    } catch {
+      setThreadFailed(true);
+    }
+  };
+
+  const markMessagesSeen = async (ticket: Ticket) => {
+    if (!currentUser || !ticket.last_staff_message_at) return;
+    const key = seenMessagesKey(currentUser.user_id);
+    const seenAt = await readJson<Record<string, string>>(key, {});
+    seenAt[String(ticket.ticket_id)] = new Date().toISOString();
+    setSeenMessages({ ...seenAt });
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(seenAt));
+    } catch {
+      // Non-critical: the badge just stays until the next successful write.
+    }
+    if (tickets) updateBadgeFromTickets(tickets);
+  };
+
+  const handleSendReply = async () => {
+    const ticket = viewingTicket;
+    const body = reply.trim();
+    if (!ticket || !body || isSendingReply) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setReplyError(null);
+    setIsSendingReply(true);
+    try {
+      const { data } = await axiosClient.post<TicketMessage>(`/tickets/${ticket.ticket_id}/messages/`, { body });
+      setThread((prev) => [...prev, data]);
+      setReply("");
+      // A reply sends the ticket back to staff (and reopens it if resolved).
+      setViewingTicket({ ...ticket, status: "pending", resolved_at: null });
+      loadTickets();
+      requestAnimationFrame(() => modalScrollRef.current?.scrollToEnd({ animated: true }));
+    } catch (error: any) {
+      setReplyError(
+        error.response?.data?.details?.body?.[0] ??
+          error.response?.data?.message ??
+          "Couldn't send your message. Please try again."
+      );
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
+
+  const closeTicket = () => {
+    Keyboard.dismiss();
+    setViewingTicket(null);
   };
 
   const loadTickets = async () => {
@@ -167,7 +278,12 @@ export default function TicketsScreen() {
   const handleView = async (ticket: Ticket) => {
     Haptics.selectionAsync().catch(() => {});
     setFollowUpError(null);
+    setReplyError(null);
+    setReply("");
+    setThread([]);
     setViewingTicket(ticket);
+    if (!ticket.is_ai_resolved) loadThread(ticket.ticket_id);
+    markMessagesSeen(ticket);
 
     // Only a resolved ticket counts as seen - otherwise viewing it while
     // pending would stop the badge from ever showing its resolution.
@@ -297,38 +413,50 @@ export default function TicketsScreen() {
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
             renderItem={({ item: ticket }) => {
               const isResolved = ticket.status === "resolved";
+              const hasNewReply = hasUnreadStaffMessage(ticket, seenMessages);
+              const statusColor =
+                  ticket.status === "active" ? colors.statusActive : isResolved ? colors.statusResolved : colors.statusPending;
               return (
-                <View style={styles.row}>
+                <PressableScale
+                  style={styles.row}
+                  pressedScale={0.985}
+                  onPress={() => handleView(ticket)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${ticket.title}, ticket ${ticket.ticket_code}, ${
+                    ticket.is_ai_resolved ? "answered by ChatDesk" : STATUS_LABELS[ticket.status] ?? ticket.status
+                  }${hasNewReply ? ", new reply" : ""}. Open ticket`}
+                >
                   <View style={styles.labelColumn}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
                       {ticket.title}
                     </Text>
+                    {hasNewReply ? (
+                      <View style={styles.newReplyPill}>
+                        <Text style={styles.newReplyText}>New reply</Text>
+                      </View>
+                    ) : null}
                     <Text style={styles.rowNumber}>{ticket.ticket_code}</Text>
                     <Text style={styles.rowDate}>{formatManila(ticket.created_at)}</Text>
                   </View>
                   <View style={styles.statusColumn}>
                     {isResolved ? (
-                      <MaterialIcons
-                        name="check"
-                        size={20}
-                        color={colors.textPrimary}
-                        accessibilityLabel={ticket.is_ai_resolved ? "Answered by ChatDesk" : "Resolved"}
-                      />
+                      <MaterialIcons name="check-circle" size={22} color={statusColor} />
                     ) : (
-                      <Text style={styles.pendingText}>{STATUS_LABELS[ticket.status] ?? "Pending"}</Text>
+                      <View style={styles.statusPill}>
+                        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                        <Text style={[styles.statusText, { color: statusColor }]}>
+                          {STATUS_LABELS[ticket.status] ?? "Pending"}
+                        </Text>
+                      </View>
                     )}
                   </View>
-                  <View style={styles.actionColumn}>
-                    <PressableScale
-                      style={styles.viewButton}
-                      onPress={() => handleView(ticket)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${ticket.title}, ticket ${ticket.ticket_code}`}
-                    >
+                  {/* The whole row opens the ticket; the button is the visible cue. */}
+                  <View style={styles.actionColumn} importantForAccessibility="no-hide-descendants">
+                    <View style={styles.viewButton}>
                       <Text style={styles.viewButtonText}>View</Text>
-                    </PressableScale>
+                    </View>
                   </View>
-                </View>
+                </PressableScale>
               );
             }}
           />
@@ -339,9 +467,15 @@ export default function TicketsScreen() {
         visible={viewingTicket !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setViewingTicket(null)}
+        onRequestClose={closeTicket}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setViewingTicket(null)}>
+        <Pressable
+          style={[
+            styles.modalBackdrop,
+            keyboardHeight > 0 && { justifyContent: "flex-end", paddingBottom: keyboardHeight + 12 },
+          ]}
+          onPress={closeTicket}
+        >
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             {viewingTicket ? (
               <>
@@ -362,18 +496,40 @@ export default function TicketsScreen() {
                         : STATUS_LABELS[viewingTicket.status] ?? viewingTicket.status}
                     </Text>
                   </View>
+                  <PressableScale
+                    onPress={closeTicket}
+                    hitSlop={12}
+                    style={styles.modalCloseIcon}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close ticket"
+                  >
+                    <MaterialIcons name="close" size={22} color={colors.textSecondary} />
+                  </PressableScale>
                 </View>
 
-                <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  ref={modalScrollRef}
+                  style={styles.modalBody}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
                   <Text style={styles.modalSectionLabel}>You asked</Text>
                   <Text style={styles.modalSectionText}>{displayQuestion(viewingTicket.issue_description)}</Text>
 
-                  <Text style={[styles.modalSectionLabel, styles.modalSectionLabelSpaced]}>
-                    {viewingTicket.is_ai_resolved ? "ChatDesk's answer" : "Staff answer"}
-                  </Text>
-                  <Text style={styles.modalSectionText}>
-                    {viewingTicket.resolution ?? "Waiting for a staff response."}
-                  </Text>
+                  {/* The answer shows once there is one. Until then, the
+                      conversation below is where staff reply. */}
+                  {viewingTicket.resolution && (viewingTicket.is_ai_resolved || viewingTicket.status === "resolved") ? (
+                    <>
+                      <Text style={[styles.modalSectionLabel, styles.modalSectionLabelSpaced]}>
+                        {viewingTicket.is_ai_resolved ? "ChatDesk's answer" : "Final answer"}
+                      </Text>
+                      <FormattedAnswer text={viewingTicket.resolution} style={styles.modalSectionText} />
+                    </>
+                  ) : !viewingTicket.is_ai_resolved && thread.length === 0 && !threadFailed ? (
+                    <Text style={styles.waitingNote}>
+                      OSA staff will reply here. You&apos;ll also get an email when they do.
+                    </Text>
+                  ) : null}
 
                   <View style={styles.timeline}>
                     <TimelineRow styles={styles} label="Submitted" value={formatManila(viewingTicket.created_at)} />
@@ -400,10 +556,36 @@ export default function TicketsScreen() {
                     ) : null}
                   </View>
 
+                  {!viewingTicket.is_ai_resolved && (thread.length > 0 || threadFailed) ? (
+                    <View style={styles.thread}>
+                      <Text style={styles.modalSectionLabel}>Messages</Text>
+                      {threadFailed ? (
+                        <Pressable onPress={() => loadThread(viewingTicket.ticket_id)} accessibilityRole="button">
+                          <Text style={styles.followUpError}>{"Couldn't load messages. Tap to try again."}</Text>
+                        </Pressable>
+                      ) : (
+                        thread.map((message) => {
+                          const mine = message.sender_role === "student";
+                          return (
+                            <View
+                              key={message.message_id}
+                              style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleStaff]}
+                            >
+                              <Text style={[styles.bubbleText, mine && styles.bubbleTextMine]}>{message.body}</Text>
+                              <Text style={[styles.bubbleMeta, mine && styles.bubbleMetaMine]}>
+                                {mine ? "You" : message.sender_name} · {formatManila(message.created_at)}
+                              </Text>
+                            </View>
+                          );
+                        })
+                      )}
+                    </View>
+                  ) : null}
+
                   {viewingTicket.is_ai_resolved ? (
                     <View style={styles.followUpBox}>
                       <Text style={styles.followUpText}>
-                        Didn't fully answer your question? OSA staff can follow up on this same ticket.
+                        Didn&apos;t fully answer your question? OSA staff can follow up on this same ticket.
                       </Text>
                       <Pressable
                         style={({ pressed }) => [styles.followUpButton, pressed && styles.followUpButtonPressed]}
@@ -423,9 +605,43 @@ export default function TicketsScreen() {
                   ) : null}
                 </ScrollView>
 
-                <PressableScale style={styles.modalCloseButton} onPress={() => setViewingTicket(null)}>
-                  <Text style={styles.modalCloseButtonText}>Close</Text>
-                </PressableScale>
+                {!viewingTicket.is_ai_resolved ? (
+                  <View style={styles.replyBox}>
+                    {viewingTicket.status === "resolved" ? (
+                      <Text style={styles.replyHint}>Still need help? Sending a message reopens this ticket.</Text>
+                    ) : null}
+                    <View style={styles.replyRow}>
+                      <TextInput
+                        value={reply}
+                        onChangeText={setReply}
+                        placeholder="Message OSA staff..."
+                        placeholderTextColor={colors.textMuted}
+                        style={styles.replyInput}
+                        multiline
+                        maxLength={MESSAGE_MAX_LENGTH}
+                        accessibilityLabel="Message to OSA staff"
+                        onFocus={() =>
+                          setTimeout(() => modalScrollRef.current?.scrollToEnd({ animated: true }), 250)
+                        }
+                      />
+                      <PressableScale
+                        style={[styles.replySend, (!reply.trim() || isSendingReply) && styles.replySendDisabled]}
+                        onPress={handleSendReply}
+                        disabled={!reply.trim() || isSendingReply}
+                        accessibilityRole="button"
+                        accessibilityLabel="Send message"
+                      >
+                        {isSendingReply ? (
+                          <ActivityIndicator size="small" color={colors.white} />
+                        ) : (
+                          <MaterialIcons name="send" size={18} color={reply.trim() ? colors.white : colors.textMuted} />
+                        )}
+                      </PressableScale>
+                    </View>
+                    {replyError ? <Text style={styles.followUpError}>{replyError}</Text> : null}
+                  </View>
+                ) : null}
+
               </>
             ) : null}
           </Pressable>
@@ -479,7 +695,63 @@ const createStyles = (colors: ThemePalette) =>
     filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
     filterChipText: { fontFamily: "Montserrat_700Bold", fontSize: 12, color: colors.textSecondary },
     filterChipTextActive: { color: colors.white },
-    rowDate: { fontFamily: "Montserrat_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 1 },
+    rowDate: { fontFamily: "Montserrat_400Regular", fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+    newReplyPill: {
+      alignSelf: "flex-start",
+      marginTop: 4,
+      backgroundColor: colors.gold,
+      borderRadius: 999,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+    newReplyText: { fontFamily: "Montserrat_700Bold", fontSize: 10, color: "#1B2A6B" },
+    thread: { marginTop: 16, gap: 8 },
+    bubble: { maxWidth: "88%", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
+    bubbleStaff: {
+      alignSelf: "flex-start",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderBottomLeftRadius: 4,
+    },
+    bubbleMine: { alignSelf: "flex-end", backgroundColor: colors.accent, borderBottomRightRadius: 4 },
+    bubbleText: { fontFamily: "Montserrat_400Regular", fontSize: 14, lineHeight: 19, color: colors.textPrimary },
+    bubbleTextMine: { color: colors.white },
+    bubbleMeta: { fontFamily: "Montserrat_400Regular", fontSize: 11, color: colors.textMuted, marginTop: 3 },
+    bubbleMetaMine: { color: "rgba(255,255,255,0.75)" },
+    replyBox: { gap: 6 },
+    replyHint: { fontFamily: "Montserrat_400Regular", fontSize: 12, color: colors.textSecondary },
+    replyRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+    replyInput: {
+      flex: 1,
+      maxHeight: 110,
+      minHeight: 42,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      paddingBottom: 10,
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 14,
+      color: colors.textPrimary,
+    },
+    replySend: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    replySendDisabled: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.border },
+    modalCloseIcon: { padding: 2, marginLeft: -4 },
+    waitingNote: {
+      marginTop: 16,
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.textSecondary,
+    },
     timeline: {
       marginTop: 16,
       paddingTop: 12,
@@ -582,9 +854,12 @@ const createStyles = (colors: ThemePalette) =>
       color: colors.textPrimary,
       textAlign: "center",
     },
-    labelColumn: { flex: 1.1 },
+    labelColumn: { flex: 1.6 },
     statusColumn: { flex: 1, alignItems: "center" },
-    actionColumn: { flex: 1, alignItems: "center" },
+    actionColumn: { flex: 0.85, alignItems: "center" },
+    statusPill: { flexDirection: "row", alignItems: "center", gap: 5 },
+    statusDot: { width: 7, height: 7, borderRadius: 4 },
+    statusText: { fontFamily: "Montserrat_700Bold", fontSize: 13 },
     row: {
       flexDirection: "row",
       alignItems: "center",
@@ -594,13 +869,14 @@ const createStyles = (colors: ThemePalette) =>
       borderTopColor: colors.border,
     },
     rowTitle: { fontFamily: "Montserrat_700Bold", fontSize: 14, color: colors.textPrimary },
-    rowNumber: { fontFamily: "Montserrat_400Regular", fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    rowNumber: { fontFamily: "Montserrat_400Regular", fontSize: 12, color: colors.textSecondary, marginTop: 2 },
     pendingText: { fontFamily: "Montserrat_400Regular", fontSize: 14, color: colors.textSecondary },
     viewButton: {
       borderWidth: 1,
       borderColor: colors.textPrimary,
       borderRadius: 16,
-      paddingVertical: 6,
+      minHeight: 44,
+      justifyContent: "center",
       paddingHorizontal: 16,
     },
     viewButtonText: { fontFamily: "Montserrat_700Bold", fontSize: 13, color: colors.textPrimary },
@@ -672,16 +948,5 @@ const createStyles = (colors: ThemePalette) =>
       fontSize: 15,
       lineHeight: 21,
       color: colors.textPrimary,
-    },
-    modalCloseButton: {
-      backgroundColor: colors.accent,
-      borderRadius: 14,
-      paddingVertical: 13,
-      alignItems: "center",
-    },
-    modalCloseButtonText: {
-      fontFamily: "Montserrat_700Bold",
-      fontSize: 15,
-      color: colors.white,
     },
   });

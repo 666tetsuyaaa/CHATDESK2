@@ -46,6 +46,8 @@ export default function ProfileScreen() {
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
   const fullName = `${currentUser?.first_name ?? ""} ${currentUser?.last_name ?? ""}`.trim();
   const courseLabel = currentUser?.course ? COURSE_LABELS[currentUser.course] ?? currentUser.course : "—";
+  // Save only lights up once the name actually differs from the saved one.
+  const nameChanged = nickname.trim() !== (currentUser?.first_name ?? "");
 
   const handleUpdate = async () => {
     const problem = validatePersonName(nickname, "Name");
@@ -137,6 +139,7 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.identityRow}>
+        <View style={styles.avatarColumn}>
         <PressableScale
           style={styles.avatar}
           onPress={handlePickPhoto}
@@ -153,13 +156,17 @@ export default function ProfileScreen() {
             <Text style={styles.avatarText}>{userInitial}</Text>
           )}
           <View style={styles.avatarEditBadge}>
-            <MaterialIcons name="edit" size={12} color={colors.white} />
+            <MaterialIcons name="photo-camera" size={13} color={colors.white} />
           </View>
         </PressableScale>
-        <View>
+        <Pressable onPress={handlePickPhoto} disabled={isUploadingPhoto} hitSlop={8} accessibilityRole="button">
+          <Text style={styles.changePhoto}>Change photo</Text>
+        </Pressable>
+        </View>
+        <View style={styles.identityText}>
           <Text style={styles.name}>{fullName || "Student"}</Text>
           <Text style={styles.detail}>{courseLabel}</Text>
-          <Text style={styles.detail}>School ID: {currentUser?.school_id ?? "—"}</Text>
+          <Text style={styles.detail}>School ID: {currentUser?.school_id || "Not set"}</Text>
         </View>
       </View>
 
@@ -173,13 +180,28 @@ export default function ProfileScreen() {
         maxLength={150}
       />
       <FieldError message={nicknameError} />
-      <PressableScale style={styles.button} onPress={handleUpdate} disabled={isUpdating}>
-        <Text style={styles.buttonText}>{isUpdating ? "Updating..." : "Update"}</Text>
+      <PressableScale
+        style={[styles.button, nameChanged ? styles.buttonPrimary : styles.buttonIdle]}
+        onPress={handleUpdate}
+        disabled={!nameChanged || isUpdating}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !nameChanged || isUpdating }}
+      >
+        <Text style={[styles.buttonText, nameChanged ? styles.buttonTextPrimary : styles.buttonTextIdle]}>
+          {isUpdating ? "Saving..." : "Save name"}
+        </Text>
       </PressableScale>
 
-      <Text style={styles.sectionLabel}>Account Actions</Text>
-      <PressableScale style={styles.button} onPress={handleLogout} disabled={isLoggingOut}>
-        <Text style={styles.buttonText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
+      <Text style={styles.sectionLabel}>Account</Text>
+      <PressableScale
+        style={[styles.button, styles.logoutButton]}
+        onPress={handleLogout}
+        disabled={isLoggingOut}
+        accessibilityRole="button"
+        accessibilityLabel="Log out"
+      >
+        <MaterialIcons name="logout" size={18} color={colors.errorRed} />
+        <Text style={[styles.buttonText, styles.logoutText]}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
       </PressableScale>
     </Pressable>
   );
@@ -195,7 +217,10 @@ const createStyles = (colors: ThemePalette) =>
       paddingBottom: 24,
     },
     title: { fontSize: 22, fontFamily: "PlusJakartaSans_700Bold", color: colors.textPrimary },
-    identityRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 32 },
+    identityRow: { flexDirection: "row", alignItems: "flex-start", gap: 16, marginBottom: 32 },
+    avatarColumn: { alignItems: "center", gap: 6 },
+    identityText: { flex: 1, paddingTop: 6 },
+    changePhoto: { fontFamily: "Montserrat_700Bold", fontSize: 12, color: colors.accentText },
     avatar: {
       width: 56,
       height: 56,
@@ -212,9 +237,9 @@ const createStyles = (colors: ThemePalette) =>
       position: "absolute",
       bottom: 0,
       right: 0,
-      width: 18,
-      height: 18,
-      borderRadius: 9,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
       backgroundColor: colors.gold,
       alignItems: "center",
       justifyContent: "center",
@@ -249,4 +274,10 @@ const createStyles = (colors: ThemePalette) =>
       marginBottom: 28,
     },
     buttonText: { fontFamily: "Montserrat_700Bold", fontSize: 15, color: colors.textPrimary },
+    buttonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+    buttonTextPrimary: { color: colors.white },
+    buttonIdle: { opacity: 1 },
+    buttonTextIdle: { color: colors.textMuted },
+    logoutButton: { flexDirection: "row", justifyContent: "center", gap: 8 },
+    logoutText: { color: colors.errorRed },
   });

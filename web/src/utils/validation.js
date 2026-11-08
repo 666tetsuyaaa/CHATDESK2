@@ -23,6 +23,7 @@ export const LIMITS = {
   ticketTitle: 100,
   ticketCategory: 100,
   resolution: 5000,
+  ticketMessage: 2000,
 };
 
 export function requiredText(value, label) {

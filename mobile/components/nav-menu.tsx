@@ -32,15 +32,16 @@ import { colors as brandColors, type ThemePalette } from "../theme/colors";
 // Tickets and Announcements moved to the bottom tab bar - listing them here
 // too would just be a second path to the same screen. This menu now holds
 // only what doesn't have a permanent tab slot.
+// "More" used to hide the one survey link behind a toggle - with a single
+// item it's simpler to show it.
 const MENU_ITEMS: { label: string; icon: keyof typeof MaterialIcons.glyphMap }[] = [
   { label: "Start Chat", icon: "chat-bubble-outline" },
   { label: "Settings", icon: "settings" },
-  { label: "More", icon: "more-horiz" },
+  { label: "SUS Survey", icon: "poll" },
 ];
 
 const PANEL_WIDTH_RATIO = 0.62;
 const ANIMATION_DURATION = 260;
-const SUS_ROW_HEIGHT = 42;
 const SUS_SURVEY_URL =
   "https://docs.google.com/forms/d/e/1FAIpQLSeygl0FHqVdkRuuLLCEImGS5ExyRKjZnNO7XngacoOj5pNkGA/viewform?usp=publish-editor";
 
@@ -60,9 +61,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
   const panelWidth = width * PANEL_WIDTH_RATIO;
   const [isMounted, setIsMounted] = useState(visible);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [isMoreExpanded, setIsMoreExpanded] = useState(false);
   const translateX = useSharedValue(-panelWidth);
-  const moreProgress = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
@@ -86,14 +85,12 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
     transform: [{ translateX: translateX.value }],
   }));
 
-  const susRowStyle = useAnimatedStyle(() => ({
-    height: moreProgress.value * SUS_ROW_HEIGHT,
-    opacity: moreProgress.value,
-  }));
-
-  const chevronStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${moreProgress.value * 180}deg` }],
-  }));
+  const handleOpenSusSurvey = () => {
+    onClose();
+    Linking.openURL(SUS_SURVEY_URL).catch(() => {
+      Alert.alert("Unable to open link", "Please check your internet connection and try again.");
+    });
+  };
 
   const handleMenuItemPress = (label: string) => {
     if (label === "Start Chat") {
@@ -107,25 +104,11 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
       router.push("/settings");
       return;
     }
-    if (label === "More") {
-      setIsMoreExpanded((prev) => {
-        const next = !prev;
-        moreProgress.value = withTiming(next ? 1 : 0, {
-          duration: 220,
-          easing: Easing.out(Easing.cubic),
-        });
-        return next;
-      });
+    if (label === "SUS Survey") {
+      handleOpenSusSurvey();
       return;
     }
     Alert.alert(label, "Coming soon.");
-  };
-
-  const handleOpenSusSurvey = () => {
-    onClose();
-    Linking.openURL(SUS_SURVEY_URL).catch(() => {
-      Alert.alert("Unable to open link", "Please check your internet connection and try again.");
-    });
   };
 
   const handleResumeSession = (sessionId: string) => {
@@ -188,31 +171,18 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
                 onPress={() => handleMenuItemPress(item.label)}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}
-                accessibilityState={item.label === "More" ? { expanded: isMoreExpanded } : undefined}
               >
                 <MaterialIcons name={item.icon} size={20} color={colors.accentText} />
                 <Text style={styles.menuLabel}>{item.label}</Text>
-                {item.label === "More" ? (
-                  <Animated.View style={chevronStyle}>
-                    <MaterialIcons name="expand-more" size={20} color={colors.accentText} />
-                  </Animated.View>
-                ) : null}
               </PressableScale>
             ))}
-            <Animated.View style={[styles.subMenuContainer, susRowStyle]}>
-              <Pressable
-                style={({ pressed }) => [styles.subMenuRow, pressed && styles.subMenuRowPressed]}
-                onPress={handleOpenSusSurvey}
-              >
-                <MaterialIcons name="poll" size={18} color={colors.accentText} />
-                <Text style={styles.subMenuLabel}>SUS Survey</Text>
-              </Pressable>
-            </Animated.View>
           </View>
 
           <Text style={styles.historyHeading}>History</Text>
           {history.length === 0 ? (
-            <Text style={styles.historyEmpty}>No recent chats yet.</Text>
+            <View style={styles.historyList}>
+              <Text style={styles.historyEmpty}>No recent chats yet.</Text>
+            </View>
           ) : (
             <ScrollView style={styles.historyList} contentContainerStyle={styles.historyListContent}>
               {history.map((session) => (
@@ -229,8 +199,17 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
             </ScrollView>
           )}
 
+          {/* Pinned to the bottom, away from History, so it never moves. */}
           <View style={styles.footer}>
-            <PressableScale style={styles.logoutButton} onPress={handleLogout} disabled={isLoggingOut}>
+            <PressableScale
+              style={styles.logoutButton}
+              pressedScale={0.98}
+              onPress={handleLogout}
+              disabled={isLoggingOut}
+              accessibilityRole="button"
+              accessibilityLabel="Log out"
+            >
+              <MaterialIcons name="logout" size={20} color={colors.errorRed} />
               <Text style={styles.logoutText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
             </PressableScale>
           </View>
@@ -283,18 +262,6 @@ const createStyles = (colors: ThemePalette) =>
       paddingVertical: 10,
     },
     menuLabel: { flex: 1, fontFamily: "Montserrat_400Regular", fontSize: 15, color: colors.textPrimary },
-    subMenuContainer: {
-      overflow: "hidden",
-      justifyContent: "center",
-    },
-    subMenuRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      paddingLeft: 32,
-    },
-    subMenuRowPressed: { opacity: 0.6 },
-    subMenuLabel: { fontFamily: "Montserrat_400Regular", fontSize: 14, color: colors.textSecondary },
     historyHeading: {
       fontFamily: "Montserrat_700Bold",
       fontSize: 14,
@@ -311,13 +278,7 @@ const createStyles = (colors: ThemePalette) =>
       fontSize: 13,
       color: colors.textSecondary,
     },
-    footer: { alignItems: "flex-end", paddingVertical: 14 },
-    logoutButton: {
-      borderWidth: 1,
-      borderColor: colors.accentText,
-      borderRadius: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 18,
-    },
-    logoutText: { fontFamily: "Montserrat_700Bold", color: colors.accentText, fontSize: 13 },
+    footer: { borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 },
+    logoutButton: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
+    logoutText: { fontFamily: "Montserrat_700Bold", color: colors.errorRed, fontSize: 15 },
   });

@@ -26,6 +26,7 @@ import { BotAvatar } from "../../components/bot-avatar";
 import { BrandTitle } from "../../components/brand-title";
 import { NavMenu } from "../../components/nav-menu";
 import { PressableScale } from "../../components/pressable-scale";
+import { FormattedAnswer } from "../../components/formatted-answer";
 import { TypingDots } from "../../components/typing-dots";
 import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
@@ -80,6 +81,11 @@ export default function StudentChatScreen() {
   const [isPhaseBannerDismissed, setIsPhaseBannerDismissed] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const scrollViewRef = useRef<ScrollViewInstance>(null);
+  // A reply taller than most of the screen is shown from its top, not its
+  // end - the first steps of a long FAQ answer are the ones to read first.
+  const listHeightRef = useRef(0);
+  const longReplyIndexRef = useRef<number | null>(null);
+  const [waitSeconds, setWaitSeconds] = useState(0);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>(FALLBACK_SUGGESTED_QUESTIONS);
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
@@ -153,6 +159,18 @@ export default function StudentChatScreen() {
       hideSub.remove();
     };
   }, []);
+
+  // Counts how long the current reply has taken, for the waiting hint.
+  useEffect(() => {
+    if (!isSending) return;
+    const started = Date.now();
+    const timer = setInterval(() => setWaitSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => {
+      clearInterval(timer);
+      setWaitSeconds(0);
+    };
+  }, [isSending]);
+  const waitingHint = waitSeconds >= 12 ? "Almost there…" : waitSeconds >= 4 ? "Checking the FAQs…" : null;
 
   const handleSend = () => {
     const trimmed = message.trim();
@@ -237,7 +255,7 @@ export default function StudentChatScreen() {
             accessibilityRole="button"
             accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
           >
-            <MaterialIcons name="apartment" size={14} color={colors.gold} />
+            <MaterialIcons name="apartment" size={14} color={colors.goldInk} />
             <Text style={styles.categoryChipText} numberOfLines={1}>
               {selectedOffice ? selectedOffice.name : "All offices"}
             </Text>
@@ -278,7 +296,7 @@ export default function StudentChatScreen() {
                         <Text style={[styles.categoryModalOptionText, isSelected && styles.categoryModalOptionTextSelected]}>
                           {item.name}
                         </Text>
-                        {isSelected ? <MaterialIcons name="check-circle" size={18} color={colors.gold} /> : null}
+                        {isSelected ? <MaterialIcons name="check-circle" size={18} color={colors.goldInk} /> : null}
                       </Pressable>
                     );
                   }}
@@ -290,7 +308,7 @@ export default function StudentChatScreen() {
           {hasActivePhase && !isPhaseBannerDismissed && phase ? (
             <View style={styles.phaseBanner}>
               <View style={styles.phaseBannerIcon}>
-                <MaterialIcons name="event" size={16} color={colors.gold} />
+                <MaterialIcons name="event" size={16} color={colors.goldInk} />
               </View>
               <View style={styles.phaseBannerText}>
                 <Text style={styles.phaseBannerTitle}>{phase.name}</Text>
@@ -329,13 +347,35 @@ export default function StudentChatScreen() {
                 // through on the first try, and dragging the chat closes it too.
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+                onContentSizeChange={() => {
+                  if (longReplyIndexRef.current === messages.length - 1 && !isSending) return;
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                }}
                 // Fires when the keyboard (or a growing input) shrinks the
                 // visible area - content size alone doesn't change then.
-                onLayout={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+                onLayout={(e) => {
+                  listHeightRef.current = e.nativeEvent.layout.height;
+                  scrollViewRef.current?.scrollToEnd({ animated: false });
+                }}
               >
                 {messages.map((item, index) => (
-                  <Animated.View key={index} entering={FadeInDown.duration(280)}>
+                  <Animated.View
+                    key={index}
+                    entering={FadeInDown.duration(280)}
+                    onLayout={
+                      index === messages.length - 1 && item.role === "assistant"
+                        ? (e) => {
+                            const { y, height } = e.nativeEvent.layout;
+                            if (height > listHeightRef.current * 0.75 && longReplyIndexRef.current !== index) {
+                              longReplyIndexRef.current = index;
+                              requestAnimationFrame(() =>
+                                scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true })
+                              );
+                            }
+                          }
+                        : undefined
+                    }
+                  >
                     {item.role === "user" ? (
                       <View style={[styles.messageBubble, styles.messageBubbleUser]}>
                         <Text style={styles.messageTextUser}>{item.text}</Text>
@@ -344,7 +384,7 @@ export default function StudentChatScreen() {
                       <View style={styles.assistantRow}>
                         <BotAvatar size={28} />
                         <View style={[styles.messageBubble, styles.messageBubbleAssistant]}>
-                          <Text style={styles.messageTextAssistant}>{item.text}</Text>
+                          <FormattedAnswer text={item.text} style={styles.messageTextAssistant} />
                         </View>
                       </View>
                     )}
@@ -414,7 +454,7 @@ export default function StudentChatScreen() {
                       <View style={styles.ticketCard}>
                         <View style={styles.ticketCardHeader}>
                           <View style={styles.ticketCardIcon}>
-                            <MaterialIcons name="confirmation-number" size={16} color={colors.gold} />
+                            <MaterialIcons name="confirmation-number" size={16} color={colors.goldInk} />
                           </View>
                           <View style={styles.ticketCardHeaderText}>
                             <Text style={styles.ticketRowLabel} numberOfLines={2}>
@@ -424,7 +464,7 @@ export default function StudentChatScreen() {
                           </View>
                         </View>
                         {item.canRate ? (
-                          <Text style={styles.ticketRowHint}>Sent to OSA staff - they'll reply in your Tickets.</Text>
+                          <Text style={styles.ticketRowHint}>Sent to OSA staff - they&apos;ll reply in your Tickets.</Text>
                         ) : null}
                         <Pressable
                           style={({ pressed }) => [styles.viewTicketButton, pressed && styles.viewTicketButtonPressed]}
@@ -464,8 +504,15 @@ export default function StudentChatScreen() {
                 {isSending ? (
                   <Animated.View entering={FadeIn.duration(200)} style={styles.assistantRow}>
                     <BotAvatar size={28} />
-                    <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
-                      <TypingDots color={colors.accentText} />
+                    <View>
+                      <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
+                        <TypingDots color={colors.accentText} />
+                      </View>
+                      {waitingHint ? (
+                        <Animated.Text entering={FadeIn.duration(250)} style={styles.waitingHint} accessibilityLiveRegion="polite">
+                          {waitingHint}
+                        </Animated.Text>
+                      ) : null}
                     </View>
                   </Animated.View>
                 ) : null}
@@ -545,7 +592,7 @@ export default function StudentChatScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.sendButton,
-                  !canSend && styles.sendButtonDisabled,
+                  !canSend && !isSending && styles.sendButtonDisabled,
                   pressed && styles.sendButtonPressed,
                 ]}
                 onPress={handleSend}
@@ -557,7 +604,7 @@ export default function StudentChatScreen() {
                 {isSending ? (
                   <ActivityIndicator size="small" color={brandColors.navy} />
                 ) : (
-                  <MaterialIcons name="arrow-upward" size={20} color={brandColors.navy} />
+                  <MaterialIcons name="arrow-upward" size={20} color={canSend ? brandColors.navy : colors.textMuted} />
                 )}
               </Pressable>
             </View>
@@ -953,7 +1000,16 @@ const createStyles = (colors: ThemePalette) =>
       alignItems: "center",
       justifyContent: "center",
     },
-    sendButtonDisabled: { opacity: 0.4 },
+    // Empty input: a quiet outline instead of a faded gold circle that
+    // looks broken.
+    sendButtonDisabled: { backgroundColor: "transparent", borderWidth: 1.5, borderColor: colors.border },
+    waitingHint: {
+      marginTop: 4,
+      marginLeft: 4,
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 12,
+      color: colors.textSecondary,
+    },
     sendButtonPressed: { transform: [{ scale: 0.94 }] },
     disclaimer: {
       textAlign: "center",

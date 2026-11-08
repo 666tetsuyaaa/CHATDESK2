@@ -12,6 +12,7 @@ export default function ScrollTable({ children, stickyFirstColumn = true }) {
   const barRef = useRef(null);
   const bodyRef = useRef(null);
   const [contentWidth, setContentWidth] = useState(0);
+  const [viewWidth, setViewWidth] = useState(0);
   const [overflows, setOverflows] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -19,6 +20,7 @@ export default function ScrollTable({ children, stickyFirstColumn = true }) {
     const body = bodyRef.current;
     const measure = () => {
       setContentWidth(body.scrollWidth);
+      setViewWidth(body.clientWidth);
       setOverflows(body.scrollWidth > body.clientWidth + 1);
     };
     measure();
@@ -52,6 +54,9 @@ export default function ScrollTable({ children, stickyFirstColumn = true }) {
         className={`table-scroll-body overflow-x-auto ${stickyFirstColumn ? "sticky-first-column" : ""} ${
           isScrolled ? "is-scrolled" : ""
         }`}
+        // Visible width, for panels inside the table that should stay on
+        // screen while it scrolls sideways (.table-row-panel in index.css).
+        style={{ "--table-view-width": `${viewWidth}px` }}
         tabIndex={overflows ? 0 : undefined}
         role={overflows ? "region" : undefined}
         aria-label={overflows ? "Table - scroll sideways to see more columns" : undefined}

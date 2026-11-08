@@ -9,6 +9,7 @@ import AnnouncementFormModal from "../components/AnnouncementFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
+import { formatManilaDate } from "../utils/dates.js";
 
 export default function AnnouncementManagement() {
   const [announcements, setAnnouncements] = useState([]);
@@ -65,7 +66,7 @@ export default function AnnouncementManagement() {
 
   return (
     <section>
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
         <StatTile
           label="Total Announcements"
           value={announcements.length}
@@ -97,7 +98,7 @@ export default function AnnouncementManagement() {
             setEditingAnnouncement(null);
             setIsModalOpen(true);
           }}
-          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:brightness-95"
+          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-navy-dark transition-colors hover:brightness-95"
         >
           + Broadcast Announcement
         </button>
@@ -132,17 +133,18 @@ export default function AnnouncementManagement() {
                     {announcement.content}
                   </td>
                   <td className="px-5 py-3.5 text-gray-500">
-                    {new Date(announcement.created_at).toLocaleDateString()}
+                    {formatManilaDate(announcement.created_at)}
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex items-center justify-end gap-3">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => {
                           setEditingAnnouncement(announcement);
                           setIsModalOpen(true);
                         }}
                         aria-label="Edit announcement"
-                        className="text-gray-400 transition-colors hover:text-status-active"
+                        title="Edit announcement"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 hover:bg-status-active/10 hover:text-status-active"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
@@ -157,7 +159,8 @@ export default function AnnouncementManagement() {
                       <button
                         onClick={() => setPendingDeleteAnnouncement(announcement)}
                         aria-label="Delete announcement"
-                        className="text-gray-400 transition-colors hover:text-red-500"
+                        title="Delete announcement"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 hover:bg-red-50 hover:text-red-600"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
@@ -201,14 +204,16 @@ export default function AnnouncementManagement() {
 
 function StatTile({ label, value, icon, accentClass }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${accentClass}`}>
+    <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accentClass}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           {icon}
         </svg>
       </div>
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-navy">{value}</p>
+      <div className="min-w-0">
+        <p className="text-xs leading-snug text-gray-500 sm:text-sm">{label}</p>
+        <p className="text-xl font-bold tabular-nums text-navy sm:text-2xl">{value}</p>
+      </div>
     </div>
   );
 }

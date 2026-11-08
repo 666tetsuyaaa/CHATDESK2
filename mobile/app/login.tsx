@@ -211,7 +211,7 @@ const createStyles = (colors: ThemePalette) =>
     forgotPasswordText: {
       fontSize: 13,
       fontFamily: "Montserrat_700Bold",
-      color: colors.gold,
+      color: colors.goldInk,
     },
     button: {
       backgroundColor: colors.accent,

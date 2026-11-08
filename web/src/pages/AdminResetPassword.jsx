@@ -183,7 +183,7 @@ export default function AdminResetPassword() {
           )}
 
           <p className="mt-8 text-center text-sm text-gray-500">
-            <Link to="/login" className="font-semibold text-navy hover:text-gold">
+            <Link to="/login" className="font-semibold text-navy hover:text-gold-ink">
               Back to Log In
             </Link>
           </p>

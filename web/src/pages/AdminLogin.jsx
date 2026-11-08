@@ -182,7 +182,7 @@ export default function AdminLogin() {
                 </label>
                 <Link
                   to="/reset-password"
-                  className="rounded text-sm font-medium text-gold outline-none transition-colors duration-150 hover:text-navy focus-visible:ring-2 focus-visible:ring-gold/60"
+                  className="rounded text-sm font-medium text-gold-ink outline-none transition-colors duration-150 hover:text-navy focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   Forgot password?
                 </Link>

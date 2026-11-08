@@ -66,6 +66,19 @@ const NAV_SECTIONS = [
           />
         ),
       },
+      {
+        label: "Unanswered Questions",
+        to: "/unanswered",
+        icon: (
+          <path
+            d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ),
+      },
     ],
   },
   {
@@ -205,7 +218,7 @@ function NavItem({ item, isCollapsed, onNavigate }) {
           )}
           <svg
             className={`h-[18px] w-[18px] shrink-0 transition-transform duration-200 ${
-              isActive ? "text-gold" : "text-current group-hover:scale-110"
+              isActive ? "text-gold-ink" : "text-current group-hover:scale-110"
             }`}
             viewBox="0 0 24 24"
             fill="none"

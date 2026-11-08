@@ -70,7 +70,7 @@ export default function AnnouncementFormModal({ initialAnnouncement, onSave, onC
           />
           <div className="flex justify-between">
             <FieldError message={errors.content} />
-            <span className="ml-auto mt-1 text-xs text-gray-400">
+            <span className="ml-auto mt-1 text-xs text-gray-500">
               {content.trim().length}/{LIMITS.announcementContent}
             </span>
           </div>

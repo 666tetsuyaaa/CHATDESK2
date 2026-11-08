@@ -26,14 +26,14 @@ export default function AnalyticsOverview() {
   const [officeFilter, setOfficeFilter] = useState("");
   const [offices, setOffices] = useState([]);
 
-  const loadData = (overrides = {}) => {
-    const filters = { dateFrom, dateTo, officeFilter, ...overrides };
+  // Filters apply as soon as they change, like on every other page.
+  const loadData = () => {
     setIsLoading(true);
     setError(null);
     const params = {};
-    if (filters.dateFrom) params.date_from = filters.dateFrom;
-    if (filters.dateTo) params.date_to = filters.dateTo;
-    if (filters.officeFilter) params.office = filters.officeFilter;
+    if (dateFrom) params.date_from = dateFrom;
+    if (dateTo) params.date_to = dateTo;
+    if (officeFilter) params.office = officeFilter;
 
     getAnalyticsOverview(params)
       .then(setData)
@@ -43,6 +43,10 @@ export default function AnalyticsOverview() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateFrom, dateTo, officeFilter]);
+
+  useEffect(() => {
     if (!isOfficeAdmin) {
       getOffices()
         .then((res) => setOffices(res.data.results ?? res.data))
@@ -51,16 +55,10 @@ export default function AnalyticsOverview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleApplyFilter = (e) => {
-    e.preventDefault();
-    loadData();
-  };
-
   const handleClearFilter = () => {
     setDateFrom("");
     setDateTo("");
     setOfficeFilter("");
-    loadData({ dateFrom: "", dateTo: "", officeFilter: "" });
   };
 
   if (isLoading && !data) return <LoadingState label="Loading analytics..." />;
@@ -72,7 +70,7 @@ export default function AnalyticsOverview() {
 
   return (
     <section>
-      <form onSubmit={handleApplyFilter} className="mb-6 flex flex-wrap items-end gap-3">
+      <div className="mb-6 flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-sm text-gray-500">From</label>
           <input
@@ -106,19 +104,13 @@ export default function AnalyticsOverview() {
           </div>
         )}
         <button
-          type="submit"
-          className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:brightness-110"
-        >
-          Apply
-        </button>
-        <button
           type="button"
           onClick={handleClearFilter}
           className="rounded-full border border-gray-200 px-4 py-1.5 text-sm text-navy transition-colors hover:border-gold"
         >
           Clear
         </button>
-      </form>
+      </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
@@ -152,7 +144,7 @@ export default function AnalyticsOverview() {
         <StatTile
           label="Answered by ChatDesk"
           value={data.ai_answered_tickets ?? 0}
-          accentClass="bg-gold/15 text-gold"
+          accentClass="bg-gold/15 text-gold-ink"
           icon={
             <path
               d="m20 6-11 11-5-5"
@@ -221,7 +213,7 @@ function SectionHeader({ title, subtitle }) {
   return (
     <div className="mb-6">
       <h4 className="font-semibold text-navy">{title}</h4>
-      <p className="text-xs text-gray-400">{subtitle}</p>
+      <p className="text-xs text-gray-500">{subtitle}</p>
     </div>
   );
 }
@@ -236,30 +228,32 @@ function StatTile({ label, hint, value, icon, accentClass, isText = false }) {
       </div>
       <p className="text-sm text-gray-500">
         {label}
-        {hint && <span className="block text-xs text-gray-400">{hint}</span>}
+        {hint && <span className="block text-xs text-gray-500">{hint}</span>}
       </p>
       <p className={`mt-1 font-bold tabular-nums text-navy ${isText ? "text-xl" : "text-3xl"}`}>{value}</p>
     </div>
   );
 }
 
-// Which office is falling behind: staff tickets per office, most pending first.
+// Which office is falling behind: staff tickets per office, most overdue
+// and pending first.
 function OfficeWorkload({ rows }) {
   return (
     <div className="mb-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
       <SectionHeader
         title="Pending Work by Office"
-        subtitle="Staff tickets for the selected filters - offices with the most pending work first"
+        subtitle="Staff tickets for the selected filters - offices with the most overdue and pending work first"
       />
       {rows.length === 0 ? (
         <p className="py-6 text-center text-sm text-gray-500">No tickets for these filters.</p>
       ) : (
         <ScrollTable>
-          <table className="w-full min-w-[640px] text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead>
               <tr className="border-b border-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <th className="py-2 pr-4">Office</th>
                 <th className="px-3 py-2 text-right">Pending</th>
+                <th className="px-3 py-2 text-right" title="Pending longer than the overdue limit">Overdue</th>
                 <th className="px-3 py-2 text-right">Active</th>
                 <th className="px-3 py-2 text-right">Resolved</th>
                 <th className="px-3 py-2 text-right">Answered by ChatDesk</th>
@@ -272,10 +266,13 @@ function OfficeWorkload({ rows }) {
                 <tr key={row.office_id ?? "unassigned"} className="border-b border-gray-50 text-navy last:border-0">
                   <td className="py-2.5 pr-4">
                     <span className="font-medium">{row.office_name}</span>
-                    {row.office_code && <span className="ml-2 font-mono text-xs text-gray-400">{row.office_code}</span>}
+                    {row.office_code && <span className="ml-2 font-mono text-xs text-gray-500">{row.office_code}</span>}
                   </td>
                   <td className={`px-3 py-2.5 text-right tabular-nums ${row.pending ? "font-bold text-status-pending" : "text-gray-400"}`}>
                     {row.pending}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums ${row.overdue ? "font-bold text-red-600" : "text-gray-400"}`}>
+                    {row.overdue ?? 0}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{row.active}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums">{row.resolved}</td>
@@ -363,7 +360,7 @@ function OtherInteractions({ items }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-6 border-t border-gray-100 pt-4">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
         Other chatbot interactions (not counted as inquiries)
       </p>
       <div className="flex flex-wrap gap-2">
@@ -434,7 +431,7 @@ function TicketStatusDonut({ counts, total }) {
         )}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-3xl font-bold tabular-nums text-navy">{total}</span>
-          <span className="text-xs text-gray-400">Tickets</span>
+          <span className="text-xs text-gray-500">Tickets</span>
         </div>
       </div>
 

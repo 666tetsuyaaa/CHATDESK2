@@ -41,6 +41,8 @@
     --c-status-pending: 251 191 36;
     --c-status-active: 96 165 250;
     --c-status-resolved: 52 211 153;
+    /* Gold as text or icon on a surface: brand gold reads fine on dark. */
+    --c-gold-ink: 245 166 35;
   }
 
   :root.light {
@@ -76,6 +78,8 @@
     --c-status-pending: 180 83 9;
     --c-status-active: 37 99 235;
     --c-status-resolved: 22 163 74;
+    /* Brand gold is only 2:1 on white - a darker gold for text and icons. */
+    --c-gold-ink: 138 82 0;
   }
 
   body {
@@ -181,6 +185,16 @@
 .sticky-first-column thead tr.bg-gray-50 th:first-child,
 .sticky-first-column tbody tr:hover > td:first-child:not([colspan]) {
   background-color: rgb(var(--c-surface-2));
+}
+/* A full-width panel inside a wide table row (e.g. an opened ticket): kept
+   as wide as the visible area and pinned there while the table scrolls
+   sideways, so its text and buttons never sit off-screen. The 2.5rem is the
+   cell's own side padding (px-5). */
+.table-row-panel {
+  position: sticky;
+  left: 1.25rem;
+  width: calc(var(--table-view-width, 100%) - 2.5rem);
+  max-width: 100%;
 }
 /* Edge shadow once scrolled, so it's clear content is passing beneath. */
 .sticky-first-column.is-scrolled th:first-child:not([colspan]),

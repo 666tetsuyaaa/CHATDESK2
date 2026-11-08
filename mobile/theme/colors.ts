@@ -26,6 +26,12 @@ export type ThemePalette = {
   textMuted: string;
   gold: string;
   errorRed: string;
+  // Gold for text and links on a surface - brand gold is only 2:1 on white.
+  goldInk: string;
+  // Ticket status colors (same hues as the web dashboard).
+  statusPending: string;
+  statusActive: string;
+  statusResolved: string;
 };
 
 export const lightTheme: ThemePalette = {
@@ -39,6 +45,10 @@ export const lightTheme: ThemePalette = {
   textMuted: "#9CA3AF",
   gold: "#F5A623",
   errorRed: "#DC2626",
+  goldInk: "#8A5200",
+  statusPending: "#B45309",
+  statusActive: "#2563EB",
+  statusResolved: "#16A34A",
 };
 
 export const darkTheme: ThemePalette = {
@@ -52,4 +62,8 @@ export const darkTheme: ThemePalette = {
   textMuted: "#6E7699",
   gold: "#F5A623",
   errorRed: "#F1685F",
+  goldInk: "#F5A623",
+  statusPending: "#FBBF24",
+  statusActive: "#60A5FA",
+  statusResolved: "#34D399",
 };

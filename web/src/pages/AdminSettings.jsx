@@ -121,7 +121,7 @@ export default function AdminSettings() {
             >
               Change photo
             </button>
-            <p className="mt-1 text-xs text-gray-400">JPG or PNG, up to 2 MB.</p>
+            <p className="mt-1 text-xs text-gray-500">JPG or PNG, up to 2 MB.</p>
             <FieldError message={errors.profile_picture} />
           </div>
         </div>

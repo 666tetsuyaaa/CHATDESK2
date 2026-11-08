@@ -73,7 +73,7 @@ export default function OfficeFormModal({ initialOffice, onSave, onClose }) {
             className={`${FIELD_CLASS} uppercase ${invalidInput(errors.code)}`}
           />
           <FieldError message={errors.code} />
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-500">
             Starts this office&apos;s ticket codes, e.g. {(code.trim() || "OSA").toUpperCase()}103126001.
             Changing it doesn&apos;t change existing tickets.
           </p>

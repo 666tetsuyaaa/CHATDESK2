@@ -62,6 +62,9 @@ export default {
           600: v("text-2"),
         },
         red: { 600: v("danger") },
+        // Gold text/icons on a light surface - darker in the light theme so
+        // it stays readable (brand gold on white is only 2:1).
+        "gold-ink": v("gold-ink"),
       },
       borderColor: {
         navy: { DEFAULT: v("primary") },

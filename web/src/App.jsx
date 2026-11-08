@@ -10,6 +10,7 @@ import AdminSettings from "./pages/AdminSettings.jsx";
 import AnalyticsOverview from "./pages/AnalyticsOverview.jsx";
 import UserManagement from "./pages/UserManagement.jsx";
 import InquiryLogs from "./pages/InquiryLogs.jsx";
+import UnansweredQuestions from "./pages/UnansweredQuestions.jsx";
 import AnnouncementManagement from "./pages/AnnouncementManagement.jsx";
 import PhaseManagement from "./pages/PhaseManagement.jsx";
 import OfficeManagement from "./pages/OfficeManagement.jsx";
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="faqs" element={<FaqManagement />} />
         <Route path="analytics" element={<AnalyticsOverview />} />
         <Route path="logs" element={<InquiryLogs />} />
+        <Route path="unanswered" element={<UnansweredQuestions />} />
         <Route
           path="announcements"
           element={

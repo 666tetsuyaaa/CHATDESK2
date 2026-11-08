@@ -11,6 +11,7 @@ const PAGE_META = {
   "/faqs": { title: "FAQs", subtitle: "Maintain the chatbot's knowledge base" },
   "/analytics": { title: "Analytics Overview", subtitle: "Inquiry trends and ticket performance" },
   "/logs": { title: "Inquiry Logs", subtitle: "Raw chatbot conversation history" },
+  "/unanswered": { title: "Unanswered Questions", subtitle: "Questions the chatbot could not answer from an FAQ" },
   "/announcements": { title: "Announcements", subtitle: "Broadcast updates to all students" },
   "/phases": { title: "Phases", subtitle: "Manage USTP calendar phases and student guidance" },
   "/offices": { title: "Offices", subtitle: "Manage offices and colleges for routing FAQs and tickets" },
@@ -85,7 +86,7 @@ export default function AdminDashboardLayout() {
             </svg>
           </button>
           <div className="min-w-0 flex-1">
-            <p className="hidden text-xs font-medium text-gray-400 sm:block">
+            <p className="hidden text-xs font-medium text-gray-500 sm:block">
               ChatDesk <span className="mx-1 text-gray-300">/</span>
               <span className="text-gray-500">{meta.title}</span>
             </p>

@@ -18,7 +18,8 @@ export default function InquiryLogs() {
   const [logs, setLogs] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [escalatedCount, setEscalatedCount] = useState(0);
-  const [knownIntents, setKnownIntents] = useState(new Set());
+  // intent -> readable label, collected from the rows seen so far.
+  const [knownIntents, setKnownIntents] = useState(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -34,7 +35,7 @@ export default function InquiryLogs() {
     getInquiryLogs({
       page,
       intent: intentFilter || undefined,
-      user_id: debouncedUserFilter || undefined,
+      student: debouncedUserFilter || undefined,
       office: officeFilter || undefined,
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
@@ -44,8 +45,8 @@ export default function InquiryLogs() {
         setLogs(rows);
         setTotalCount(res.data.count ?? rows.length);
         setKnownIntents((prev) => {
-          const next = new Set(prev);
-          rows.forEach((log) => next.add(log.detected_intent));
+          const next = new Map(prev);
+          rows.forEach((log) => next.set(log.detected_intent, log.intent_label ?? log.detected_intent));
           return next;
         });
       })
@@ -101,7 +102,7 @@ export default function InquiryLogs() {
 
   return (
     <section>
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
         <StatTile
           label="Total Inquiries"
           value={totalCount}
@@ -134,20 +135,28 @@ export default function InquiryLogs() {
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h3 className="mr-auto text-lg font-bold text-navy">Inquiry Logs</h3>
-        <select
-          value={intentFilter}
-          onChange={(e) => setIntentFilter(e.target.value)}
-          className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
-        >
-          <option value="">All Intents</option>
-          {[...knownIntents].sort().map((intent) => (
-            <option key={intent} value={intent}>
-              {intent}
-            </option>
-          ))}
+        <input
+          type="search"
+          placeholder="Search student name or email"
+          aria-label="Search student name or email"
+          value={userFilter}
+          onChange={(e) => setUserFilter(e.target.value)}
+          className="w-full rounded-full border border-gray-200 px-4 py-1.5 text-sm text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gold/40 sm:w-64"
+        />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <span className="mr-1 text-sm font-semibold text-navy">Filters</span>
+        <select value={intentFilter} onChange={(e) => setIntentFilter(e.target.value)} aria-label="Outcome" className={`${FILTER_CLASS} max-w-[13rem]`}>
+          <option value="">All outcomes</option>
+          {[...knownIntents.entries()]
+            .sort((a, b) => a[1].localeCompare(b[1]))
+            .map(([intent, label]) => (
+              <option key={intent} value={intent}>{label}</option>
+            ))}
         </select>
         {!isOfficeAdmin && (
-          <select value={officeFilter} onChange={(e) => setOfficeFilter(e.target.value)} aria-label="Office" className={FILTER_CLASS}>
+          <select value={officeFilter} onChange={(e) => setOfficeFilter(e.target.value)} aria-label="Office" className={`${FILTER_CLASS} max-w-[13rem]`}>
             <option value="">All Offices</option>
             <option value="unassigned">Unassigned</option>
             {offices.map((o) => (
@@ -155,38 +164,32 @@ export default function InquiryLogs() {
             ))}
           </select>
         )}
-        <input
-          type="text"
-          inputMode="numeric"
-          placeholder="User ID"
-          aria-label="User ID"
-          value={userFilter}
-          // IDs are numbers - anything else would just return nothing.
-          onChange={(e) => setUserFilter(e.target.value.replace(/\D/g, ""))}
-          className="w-28 rounded-full border border-gray-200 px-4 py-1.5 text-sm text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gold/40"
-        />
-        <input
-          type="date"
-          value={dateFrom}
-          max={dateTo || undefined}
-          onChange={(e) => setDateFrom(e.target.value)}
-          aria-label="From date"
-          className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
-        />
-        <input
-          type="date"
-          value={dateTo}
-          min={dateFrom || undefined}
-          onChange={(e) => setDateTo(e.target.value)}
-          aria-label="To date"
-          className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
-        />
+        <label className="flex items-center gap-1.5 text-sm text-gray-500">
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className={FILTER_CLASS}
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-gray-500">
+          To
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            className={FILTER_CLASS}
+          />
+        </label>
         <button
           type="button"
           onClick={handleClearFilters}
           className="rounded-full border border-gray-200 px-4 py-1.5 text-sm text-navy transition-colors hover:border-gold"
         >
-          Clear Filters
+          Clear
         </button>
       </div>
 
@@ -197,7 +200,7 @@ export default function InquiryLogs() {
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-5 py-3">Student</th>
               <th className="px-5 py-3">Message</th>
-              <th className="px-5 py-3">Intent</th>
+              <th className="px-5 py-3">Outcome</th>
               <th className="px-5 py-3">Office</th>
               <th className="px-5 py-3">Escalated</th>
               <th className="px-5 py-3">Feedback</th>
@@ -217,21 +220,25 @@ export default function InquiryLogs() {
                   key={log.log_id}
                   className="border-b border-gray-50 text-navy transition-colors last:border-0 hover:bg-gray-50/80"
                 >
-                  <td className="px-5 py-3.5 text-gray-500">
-                    <div>#{log.user_id}</div>
+                  <td className="px-5 py-3.5">
+                    <div className="max-w-[12rem] truncate text-sm font-medium">{log.user_name || "Student"}</div>
+                    <div className="max-w-[12rem] truncate text-xs text-gray-500" title={log.user_email}>{log.user_email}</div>
                   </td>
                   <td className="max-w-sm px-5 py-3.5">
                     <div className="truncate">{log.user_message}</div>
-                    {log.ticket_code && <div className="font-mono text-xs text-gray-400">{log.ticket_code}</div>}
+                    {log.ticket_code && <div className="font-mono text-xs text-gray-500">{log.ticket_code}</div>}
                   </td>
                   <td className="px-5 py-3.5">
-                    <span className="whitespace-nowrap rounded-full bg-navy/5 px-2.5 py-0.5 text-xs font-medium text-navy">
-                      {log.detected_intent}
+                    <span
+                      title={log.detected_intent}
+                      className="inline-block max-w-[16rem] truncate rounded-full bg-navy/5 px-2.5 py-0.5 align-middle text-xs font-medium text-navy"
+                    >
+                      {log.intent_label ?? log.detected_intent}
                     </span>
                   </td>
                   <td className="px-5 py-3.5 text-sm">
                     {log.office_name ? (
-                      <span className="whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                      <span className="inline-block max-w-[11rem] rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
                         {log.office_name}
                       </span>
                     ) : (
@@ -279,14 +286,16 @@ export default function InquiryLogs() {
 
 function StatTile({ label, value, icon, accentClass }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${accentClass}`}>
+    <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accentClass}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           {icon}
         </svg>
       </div>
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-navy">{value}</p>
+      <div className="min-w-0">
+        <p className="text-xs leading-snug text-gray-500 sm:text-sm">{label}</p>
+        <p className="text-xl font-bold tabular-nums text-navy sm:text-2xl">{value}</p>
+      </div>
     </div>
   );
 }

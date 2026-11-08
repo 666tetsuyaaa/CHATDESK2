@@ -1,5 +1,6 @@
 import { useState } from "react";
 import FieldError, { invalidInput } from "./FieldError.jsx";
+import { suggestIntentKeyword } from "../utils/faq.js";
 import {
   LIMITS,
   firstError,
@@ -34,12 +35,18 @@ function validateFaq({ intentKeyword, questionText, answerContent }) {
   };
 }
 
-export default function FaqFormModal({ initialFaq, offices, hideOfficeField, onSave, onClose }) {
-  const [intentKeyword, setIntentKeyword] = useState(initialFaq?.intent_keyword ?? "");
-  const [questionText, setQuestionText] = useState(initialFaq?.question_text ?? "");
-  const [answerContent, setAnswerContent] = useState(initialFaq?.answer_content ?? "");
-  const [category, setCategory] = useState(initialFaq?.category ?? CATEGORIES[0]);
-  const [office, setOffice] = useState(initialFaq?.office ?? "");
+// initialFaq: edit that FAQ. prefill: start a new FAQ with these values
+// (e.g. from the Unanswered Questions page).
+export default function FaqFormModal({ initialFaq, prefill, offices, hideOfficeField, onSave, onClose }) {
+  const start = initialFaq ?? prefill;
+  const [intentKeyword, setIntentKeyword] = useState(start?.intent_keyword ?? "");
+  const [questionText, setQuestionText] = useState(start?.question_text ?? "");
+  const [answerContent, setAnswerContent] = useState(start?.answer_content ?? "");
+  const [category, setCategory] = useState(start?.category ?? CATEGORIES[0]);
+  const [office, setOffice] = useState(start?.office ?? "");
+  // A new FAQ's keyword follows the question until staff type their own;
+  // an existing FAQ's keyword is never changed for them.
+  const [keywordEdited, setKeywordEdited] = useState(Boolean(initialFaq));
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [saveError, setSaveError] = useState(null);
@@ -82,24 +89,14 @@ export default function FaqFormModal({ initialFaq, offices, hideOfficeField, onS
         </h3>
 
         <div className="mb-3">
-          <label htmlFor="faq-keyword" className="mb-1 block text-sm text-gray-600">Intent keyword</label>
-          <input
-            id="faq-keyword"
-            value={intentKeyword}
-            onChange={(e) => setIntentKeyword(e.target.value)}
-            placeholder="e.g. scholarship_requirements"
-            aria-invalid={Boolean(errors.intent_keyword)}
-            className={`${FIELD_CLASS} ${invalidInput(errors.intent_keyword)}`}
-          />
-          <FieldError message={errors.intent_keyword} />
-        </div>
-
-        <div className="mb-3">
           <label htmlFor="faq-question" className="mb-1 block text-sm text-gray-600">Question</label>
           <input
             id="faq-question"
             value={questionText}
-            onChange={(e) => setQuestionText(e.target.value)}
+            onChange={(e) => {
+              setQuestionText(e.target.value);
+              if (!keywordEdited) setIntentKeyword(suggestIntentKeyword(e.target.value));
+            }}
             aria-invalid={Boolean(errors.question_text)}
             className={`${FIELD_CLASS} ${invalidInput(errors.question_text)}`}
           />
@@ -145,6 +142,28 @@ export default function FaqFormModal({ initialFaq, offices, hideOfficeField, onS
             </select>
           </>
         )}
+
+        <div className="mb-4">
+          <label htmlFor="faq-keyword" className="mb-1 block text-sm text-gray-600">
+            Intent keyword
+          </label>
+          <input
+            id="faq-keyword"
+            value={intentKeyword}
+            onChange={(e) => {
+              setKeywordEdited(true);
+              setIntentKeyword(e.target.value);
+            }}
+            placeholder="e.g. scholarship_requirements"
+            aria-invalid={Boolean(errors.intent_keyword)}
+            aria-describedby="faq-keyword-hint"
+            className={`${FIELD_CLASS} font-mono text-sm ${invalidInput(errors.intent_keyword)}`}
+          />
+          <p id="faq-keyword-hint" className="mt-1 text-xs text-gray-500">
+            A short unique name the chatbot uses for this FAQ. Filled in from the question - change it only if you need to.
+          </p>
+          <FieldError message={errors.intent_keyword} />
+        </div>
 
         {saveError && (
           <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">

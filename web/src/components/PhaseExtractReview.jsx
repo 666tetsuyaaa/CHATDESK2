@@ -86,7 +86,7 @@ export default function PhaseExtractReview({ candidates, onDone }) {
           type="button"
           onClick={handleSaveSelected}
           disabled={isSaving || selectedCount === 0}
-          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:brightness-95 disabled:opacity-50"
+          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-navy-dark transition-colors hover:brightness-95 disabled:opacity-50"
         >
           {isSaving ? "Saving..." : `Save selected (${selectedCount})`}
         </button>
@@ -136,7 +136,7 @@ export default function PhaseExtractReview({ candidates, onDone }) {
                     </span>
                   )}
                   {row._status === "pending" && (
-                    <span className="text-xs text-gray-400">Not saved yet</span>
+                    <span className="text-xs text-gray-500">Not saved yet</span>
                   )}
                 </td>
                 <td className="px-5 py-3.5 text-right">
