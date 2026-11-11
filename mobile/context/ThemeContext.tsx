@@ -1,5 +1,5 @@
-import * as SecureStore from "expo-secure-store";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { getItem, setItem } from "../lib/deviceStorage";
 import { darkTheme, lightTheme, type ThemePalette } from "../theme/colors";
 
 const THEME_PREFERENCE_KEY = "chatdesk_theme_preference";
@@ -17,7 +17,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const stored = await SecureStore.getItemAsync(THEME_PREFERENCE_KEY);
+      const stored = await getItem(THEME_PREFERENCE_KEY);
       if (stored === "dark") setIsDark(true);
     })();
   }, []);
@@ -25,7 +25,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const toggleDarkMode = () => {
     setIsDark((prev) => {
       const next = !prev;
-      SecureStore.setItemAsync(THEME_PREFERENCE_KEY, next ? "dark" : "light");
+      setItem(THEME_PREFERENCE_KEY, next ? "dark" : "light");
       return next;
     });
   };

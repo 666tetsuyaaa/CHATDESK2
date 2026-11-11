@@ -1,52 +1,95 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { createFaq, deleteFaq, getFaqs, updateFaq } from "../api/faqs.js";
+import { getOffices } from "../api/offices.js";
 import FaqFormModal, { CATEGORIES } from "../components/FaqFormModal.jsx";
+import Pagination from "../components/Pagination.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
 
 export default function FaqManagement() {
+  const { currentUser } = useAuth();
+  const isOfficeAdmin = currentUser?.role === "office_admin";
   const [faqs, setFaqs] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [categoriesInUse, setCategoriesInUse] = useState(0);
+  const [offices, setOffices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingFaq, setEditingFaq] = useState(null);
+  const [pendingDeleteFaq, setPendingDeleteFaq] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
-  const [sortDirection, setSortDirection] = useState("asc");
+  const [officeFilter, setOfficeFilter] = useState("All");
+  const [page, setPage] = useState(1);
 
   const loadFaqs = () => {
     setIsLoading(true);
-    getFaqs()
-      .then((res) => setFaqs(res.data.results ?? res.data))
+    getFaqs({
+      page,
+      search: debouncedSearch || undefined,
+      category: categoryFilter === "All" ? undefined : categoryFilter,
+      office: officeFilter === "All" ? undefined : officeFilter === "Unassigned" ? "unassigned" : officeFilter,
+    })
+      .then((res) => {
+        setFaqs(res.data.results ?? res.data);
+        setTotalCount(res.data.count ?? (res.data.results ?? res.data).length);
+      })
       .catch(() => setError("Could not load FAQs."))
       .finally(() => setIsLoading(false));
   };
 
+  const loadCategoriesInUse = () => {
+    Promise.all(CATEGORIES.map((category) => getFaqs({ page: 1, category })))
+      .then((results) => {
+        const inUse = results.filter((res) => (res.data.count ?? (res.data.results ?? res.data).length) > 0);
+        setCategoriesInUse(inUse.length);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, categoryFilter, officeFilter]);
+
   useEffect(() => {
     loadFaqs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, categoryFilter, officeFilter]);
+
+  useEffect(() => {
+    loadCategoriesInUse();
+    getOffices()
+      .then((res) => setOffices(res.data.results ?? res.data))
+      .catch(() => {});
   }, []);
 
-  const categoriesInUse = useMemo(
-    () => new Set(faqs.map((f) => f.category)).size,
-    [faqs]
-  );
-
-  const visibleFaqs = useMemo(() => {
-    const bySearch = search
-      ? faqs.filter((f) => f.question_text.toLowerCase().includes(search.toLowerCase()))
-      : faqs;
-    const filtered =
-      categoryFilter === "All" ? bySearch : bySearch.filter((f) => f.category === categoryFilter);
-    return [...filtered].sort((a, b) =>
-      sortDirection === "asc"
-        ? a.question_text.localeCompare(b.question_text)
-        : b.question_text.localeCompare(a.question_text)
-    );
-  }, [faqs, search, categoryFilter, sortDirection]);
-
-  const handleDelete = async (faqId) => {
-    if (!window.confirm("Delete this FAQ?")) return;
-    await deleteFaq(faqId);
-    loadFaqs();
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteFaq) return;
+    setIsDeleting(true);
+    try {
+      await deleteFaq(pendingDeleteFaq.faq_id);
+      setPendingDeleteFaq(null);
+      loadFaqs();
+      loadCategoriesInUse();
+    } catch (err) {
+      setPendingDeleteFaq(null);
+      setToastMessage(err.response?.data?.message || "Could not delete this FAQ. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
   const handleSave = async (payload) => {
     if (editingFaq) {
@@ -55,17 +98,18 @@ export default function FaqManagement() {
       await createFaq(payload);
     }
     loadFaqs();
+    loadCategoriesInUse();
   };
 
-  if (isLoading) return <LoadingState label="Loading FAQs..." />;
+  if (isLoading && faqs.length === 0) return <LoadingState label="Loading FAQs..." />;
   if (error) return <ErrorState message={error} />;
 
   return (
     <section>
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
         <StatTile
           label="Total FAQs"
-          value={faqs.length}
+          value={totalCount}
           accentClass="bg-navy/10 text-navy"
           icon={
             <path
@@ -80,7 +124,7 @@ export default function FaqManagement() {
         <StatTile
           label="Categories in Use"
           value={categoriesInUse}
-          accentClass="bg-gold/15 text-gold"
+          accentClass="bg-gold/15 text-gold-ink"
           icon={
             <path
               d="M4 6h16M4 12h16M4 18h7"
@@ -107,69 +151,89 @@ export default function FaqManagement() {
           onChange={(e) => setCategoryFilter(e.target.value)}
           className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
         >
-          <option value="All">All Types</option>
+          <option value="All">All Categories</option>
           {CATEGORIES.map((category) => (
             <option key={category} value={category}>
               {category}
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          onClick={() => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))}
-          className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy transition-colors hover:border-gold"
-        >
-          Sort: {sortDirection === "asc" ? "A-Z" : "Z-A"}
-        </button>
+        {!isOfficeAdmin && (
+          <select
+            value={officeFilter}
+            onChange={(e) => setOfficeFilter(e.target.value)}
+            className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
+          >
+            <option value="All">All Offices</option>
+            <option value="Unassigned">Unassigned</option>
+            {offices.map((o) => (
+              <option key={o.office_id} value={String(o.office_id)}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           type="button"
           onClick={() => {
             setEditingFaq(null);
             setIsModalOpen(true);
           }}
-          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:brightness-95"
+          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-navy-dark transition-colors hover:brightness-95"
         >
           + Add FAQ
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <ScrollTable>
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
               <th className="px-5 py-3">Question</th>
               <th className="px-5 py-3">Category</th>
+              <th className="px-5 py-3">Office</th>
               <th className="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {visibleFaqs.length === 0 ? (
+            {faqs.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-5 py-14 text-center text-sm text-gray-500">
+                <td colSpan={4} className="px-5 py-14 text-center text-sm text-gray-500">
                   No FAQs yet.
                 </td>
               </tr>
             ) : (
-              visibleFaqs.map((faq) => (
+              faqs.map((faq) => (
                 <tr
                   key={faq.faq_id}
                   className="border-b border-gray-50 text-navy transition-colors last:border-0 hover:bg-gray-50/80"
                 >
                   <td className="px-5 py-3.5">{faq.question_text}</td>
                   <td className="px-5 py-3.5">
-                    <span className="rounded-full bg-navy/5 px-2.5 py-0.5 text-xs font-medium text-navy">
+                    <span className="whitespace-nowrap rounded-full bg-navy/5 px-2.5 py-0.5 text-xs font-medium text-navy">
                       {faq.category}
                     </span>
                   </td>
+                  <td className="px-5 py-3.5 text-sm">
+                    {faq.office_name ? (
+                      <span className="whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
+                        {faq.office_name}
+                      </span>
+                    ) : (
+                      <span className="italic text-gray-400">Unassigned</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex items-center justify-end gap-3">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => {
                           setEditingFaq(faq);
                           setIsModalOpen(true);
                         }}
                         aria-label="Edit FAQ"
-                        className="text-gray-400 transition-colors hover:text-status-active"
+                        title="Edit FAQ"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 hover:bg-status-active/10 hover:text-status-active"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
@@ -182,9 +246,10 @@ export default function FaqManagement() {
                         </svg>
                       </button>
                       <button
-                        onClick={() => handleDelete(faq.faq_id)}
+                        onClick={() => setPendingDeleteFaq(faq)}
                         aria-label="Delete FAQ"
-                        className="text-gray-400 transition-colors hover:text-red-500"
+                        title="Delete FAQ"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 hover:bg-red-50 hover:text-red-600"
                       >
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
@@ -203,29 +268,45 @@ export default function FaqManagement() {
             )}
           </tbody>
         </table>
+        </ScrollTable>
+        <Pagination page={page} count={totalCount} onPageChange={setPage} />
       </div>
 
       {isModalOpen && (
         <FaqFormModal
           initialFaq={editingFaq}
+          offices={offices}
+          hideOfficeField={isOfficeAdmin}
           onSave={handleSave}
           onClose={() => setIsModalOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteFaq !== null}
+        title="Delete this FAQ?"
+        message="This action cannot be undone."
+        isConfirming={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setPendingDeleteFaq(null)}
+      />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage("")} />
     </section>
   );
 }
 
 function StatTile({ label, value, icon, accentClass }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${accentClass}`}>
+    <div className="flex items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accentClass}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           {icon}
         </svg>
       </div>
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-navy">{value}</p>
+      <div className="min-w-0">
+        <p className="text-xs leading-snug text-gray-500 sm:text-sm">{label}</p>
+        <p className="text-xl font-bold tabular-nums text-navy sm:text-2xl">{value}</p>
+      </div>
     </div>
   );
 }

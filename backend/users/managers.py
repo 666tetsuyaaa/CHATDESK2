@@ -22,9 +22,9 @@ class UserManager(BaseUserManager):
         return self._create_user(email, password, **extra_fields)
 
     def create_superuser(self, email, password=None, **extra_fields):
-        # Admin accounts are created manually via this command per
-        # claude/API_CONTRACT.md - there is no admin self-registration endpoint.
-        extra_fields.setdefault("role", "admin")
+        # Super Admin accounts are created manually via this command per
+        # claude/API_CONTRACT.md - there is no self-registration endpoint for them.
+        extra_fields.setdefault("role", "superadmin")
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
 

@@ -1,12 +1,14 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
-import { clearTokens, getAccessToken, getRefreshToken, setAccessToken } from "./tokenStorage";
+import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from "./tokenStorage";
 
 // Set EXPO_PUBLIC_API_BASE_URL in your .env — must be your Jefferson's
 // machine's LAN IP, not "localhost", since your phone/emulator is a
 // separate device on the network. e.g. http://192.168.1.39:8000/api/v1
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
-const axiosClient = axios.create({ baseURL: BASE_URL });
+// Without a timeout, an unreachable backend (server not running, wrong LAN
+// IP, firewall) leaves requests hanging forever and buttons spin endlessly.
+const axiosClient = axios.create({ baseURL: BASE_URL, timeout: 15000 });
 
 axiosClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const accessToken = await getAccessToken();
@@ -15,6 +17,14 @@ axiosClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) 
   }
   return config;
 });
+
+// AuthContext subscribes so a dead session drops the student back to the
+// login screen, instead of every screen failing while still "logged in".
+let sessionExpiredListener: (() => void) | null = null;
+
+export function onSessionExpired(listener: (() => void) | null) {
+  sessionExpiredListener = listener;
+}
 
 let isRefreshing = false;
 let pendingRequests: Array<{
@@ -62,15 +72,27 @@ axiosClient.interceptors.response.use(
 
       isRefreshing = true;
       try {
-        const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, {
-          refresh: refreshToken,
-        });
-        await setAccessToken(data.access);
+        const { data } = await axios.post(
+          `${BASE_URL}/auth/token/refresh/`,
+          { refresh: refreshToken },
+          { timeout: 15000 }
+        );
+        // The backend rotates refresh tokens and blacklists the old one, so
+        // the new one must be kept or the next refresh fails (~30 min logout).
+        await saveTokens(data.access, data.refresh ?? refreshToken);
         resolvePendingRequests(data.access);
         originalRequest.headers.Authorization = `Bearer ${data.access}`;
         return axiosClient(originalRequest);
-      } catch (refreshError) {
-        await clearTokens();
+      } catch (refreshError: any) {
+        // Log out only when the server refused the refresh token (expired,
+        // revoked, or the account was deactivated). A dropped connection,
+        // timeout or server restart just fails this request - the student
+        // stays logged in and the next request tries again.
+        const status = refreshError?.response?.status;
+        if (status === 401 || status === 400) {
+          await clearTokens();
+          sessionExpiredListener?.();
+        }
         rejectPendingRequests(refreshError);
         return Promise.reject(refreshError);
       } finally {

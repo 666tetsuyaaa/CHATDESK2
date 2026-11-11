@@ -1,12 +1,15 @@
 import { Montserrat_400Regular, Montserrat_700Bold } from "@expo-google-fonts/montserrat";
 import { useFonts, PlusJakartaSans_700Bold } from "@expo-google-fonts/plus-jakarta-sans";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, Stack, usePathname } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { onboardingStorageKey } from "./onboarding";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ChatProvider } from "../context/ChatContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { TicketBadgeProvider } from "../context/TicketBadgeContext";
 
 function RootNavigator() {
   const { currentUser, isLoading } = useAuth();
@@ -21,7 +24,19 @@ function RootNavigator() {
     if (!currentUser && !isAuthScreen) {
       router.replace("/login");
     } else if (currentUser && isAuthScreen) {
-      router.replace("/");
+      // Only checked at this login->app transition, not enforced as an
+      // ongoing invariant - the onboarding screen itself just
+      // router.replace("/") when done, no need to re-verify afterward.
+      (async () => {
+        let needsOnboarding = false;
+        try {
+          const seen = await AsyncStorage.getItem(onboardingStorageKey(currentUser.user_id));
+          needsOnboarding = !seen;
+        } catch {
+          needsOnboarding = false;
+        }
+        router.replace(needsOnboarding ? "/onboarding" : "/");
+      })();
     }
   }, [currentUser, isLoading, pathname]);
 
@@ -39,15 +54,15 @@ function RootNavigator() {
   // imperatively above via router.replace(), not by adding/removing
   // screens from this list.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="index" />
+    // ios_from_right gives Android the same smooth slide iOS has by default.
+    <Stack screenOptions={{ headerShown: false, animation: "ios_from_right" }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="onboarding" />
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
       <Stack.Screen name="forgot-password" />
       <Stack.Screen name="settings" />
-      <Stack.Screen name="tickets" />
       <Stack.Screen name="profile" />
-      <Stack.Screen name="announcements" />
     </Stack>
   );
 }
@@ -72,7 +87,9 @@ export default function RootLayout() {
       <ThemeProvider>
         <AuthProvider>
           <ChatProvider>
-            <RootNavigator />
+            <TicketBadgeProvider>
+              <RootNavigator />
+            </TicketBadgeProvider>
           </ChatProvider>
         </AuthProvider>
       </ThemeProvider>

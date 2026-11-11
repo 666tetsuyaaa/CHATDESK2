@@ -1,7 +1,6 @@
 import axiosClient from "./axiosClient.js";
 
-export const getFaqs = (category) =>
-  axiosClient.get("/faqs/", { params: category ? { category } : {} });
+export const getFaqs = (params = {}) => axiosClient.get("/faqs/", { params });
 
 export const createFaq = (payload) => axiosClient.post("/faqs/", payload);
 

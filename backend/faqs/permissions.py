@@ -7,4 +7,9 @@ class IsAdminOrReadOnly(permissions.BasePermission):
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
-        return request.user.role == "admin"
+        user = request.user
+        if user.role == user.Role.SUPERADMIN:
+            return True
+        # Office-less Office Admins would create FAQs with office=None, which
+        # the chatbot treats as general and shows to every student.
+        return user.role == user.Role.OFFICE_ADMIN and user.office_id is not None

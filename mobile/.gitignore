@@ -30,7 +30,8 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local env files - .env holds each developer's own LAN IP; copy .env.example
+.env
 .env*.local
 
 # typescript

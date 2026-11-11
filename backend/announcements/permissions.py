@@ -7,4 +7,4 @@ class IsAdminOrReadOnly(BasePermission):
             return False
         if request.method in SAFE_METHODS:
             return True
-        return request.user.role == request.user.Role.ADMIN
+        return request.user.role == request.user.Role.SUPERADMIN

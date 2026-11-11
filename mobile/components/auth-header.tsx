@@ -32,7 +32,15 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 40,
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    // StyleSheet.absoluteFillObject was removed as of RN/SDK 56 - this is
+    // its long-standing, stable definition, needed here (not
+    // StyleSheet.absoluteFill) because it's spread into a plain style
+    // object alongside other properties, not used as a style prop directly.
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
     backgroundColor: "rgba(18, 25, 74, 0.6)",
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,

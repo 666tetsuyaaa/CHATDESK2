@@ -1,43 +1,100 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { FieldError } from "../components/field-error";
+import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import axiosClient from "../lib/axiosClient";
+import { courseName } from "../lib/courses";
+import { serverFieldErrors, validatePersonName } from "../lib/validation";
 import type { ThemePalette } from "../theme/colors";
 
-const COURSE_LABELS: Record<string, string> = {
-  BSIT: "BS Information Technology",
-  BSCS: "BS Computer Science",
-  BSN: "BS Nursing",
-  BSBA: "BS Business Administration",
-  BSED: "BS Secondary Education",
-  BSA: "BS Accountancy",
-  BSCE: "BS Civil Engineering",
-  BSEE: "BS Electrical Engineering",
-};
-
 export default function ProfileScreen() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, updateCurrentUser } = useAuth();
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const [nickname, setNickname] = useState(currentUser?.first_name ?? "");
   const [isUpdating, setIsUpdating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
   const fullName = `${currentUser?.first_name ?? ""} ${currentUser?.last_name ?? ""}`.trim();
-  const courseLabel = currentUser?.course ? COURSE_LABELS[currentUser.course] ?? currentUser.course : "—";
+  const courseLabel = courseName(currentUser?.course);
+  // Save only lights up once the name actually differs from the saved one.
+  const nameChanged = nickname.trim() !== (currentUser?.first_name ?? "");
 
   const handleUpdate = async () => {
+    const problem = validatePersonName(nickname, "Name");
+    setNicknameError(problem);
+    if (problem) return;
     setIsUpdating(true);
     try {
-      await axiosClient.patch("/auth/me/", { first_name: nickname });
-    } catch {
-      Alert.alert("Unavailable", "Profile updates aren't available yet - please check back soon.");
+      const { data } = await axiosClient.patch("/auth/me/", { first_name: nickname.trim() });
+      updateCurrentUser(data);
+    } catch (error: any) {
+      const { fields, general } = serverFieldErrors(error, "Please try again.");
+      if (fields.first_name) {
+        setNicknameError(fields.first_name);
+      } else {
+        Alert.alert("Unable to update", general ?? "Please try again.");
+      }
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handlePickPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Permission needed",
+        "Allow photo library access in your device settings to change your profile picture."
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    setIsUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append("profile_picture", {
+        uri: asset.uri,
+        name: asset.fileName ?? "profile.jpg",
+        type: asset.mimeType ?? "image/jpeg",
+      } as unknown as Blob);
+      const { data } = await axiosClient.patch("/auth/me/", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      updateCurrentUser(data);
+    } catch (error: any) {
+      const reason = error.response?.data?.details?.profile_picture?.[0];
+      Alert.alert("Unable to update photo", reason ?? "Please try again.");
+    } finally {
+      setIsUploadingPhoto(false);
     }
   };
 
@@ -51,43 +108,92 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    // Tapping outside the nickname box closes the keyboard (native only - on
+    // web it would blur the input on every click).
+    <Pressable
+      style={styles.screen}
+      onPress={Platform.OS === "web" ? undefined : Keyboard.dismiss}
+      accessible={false}
+    >
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <PressableScale
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <MaterialIcons name="arrow-back" size={24} color={colors.accentText} />
-        </Pressable>
+        </PressableScale>
         <Text style={styles.title}>Profile</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <View style={styles.identityRow}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{userInitial}</Text>
+        <View style={styles.avatarColumn}>
+        <PressableScale
+          style={styles.avatar}
+          onPress={handlePickPhoto}
+          disabled={isUploadingPhoto}
+          accessibilityRole="button"
+          accessibilityLabel="Change profile photo"
+          accessibilityState={{ disabled: isUploadingPhoto, busy: isUploadingPhoto }}
+        >
+          {isUploadingPhoto ? (
+            <ActivityIndicator color={colors.accentText} />
+          ) : currentUser?.profile_picture ? (
+            <Image source={{ uri: currentUser.profile_picture }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarText}>{userInitial}</Text>
+          )}
+          <View style={styles.avatarEditBadge}>
+            <MaterialIcons name="photo-camera" size={13} color={colors.white} />
+          </View>
+        </PressableScale>
+        <Pressable onPress={handlePickPhoto} disabled={isUploadingPhoto} hitSlop={8} accessibilityRole="button">
+          <Text style={styles.changePhoto}>Change photo</Text>
+        </Pressable>
         </View>
-        <View>
+        <View style={styles.identityText}>
           <Text style={styles.name}>{fullName || "Student"}</Text>
           <Text style={styles.detail}>{courseLabel}</Text>
-          <Text style={styles.detail}>School ID: {currentUser?.school_id ?? "—"}</Text>
+          <Text style={styles.detail}>School ID: {currentUser?.school_id || "Not set"}</Text>
         </View>
       </View>
 
       <Text style={styles.sectionLabel}>What should we call you?</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, nicknameError ? { borderColor: colors.errorRed } : null]}
         value={nickname}
         onChangeText={setNickname}
         placeholder="Nickname"
         placeholderTextColor={colors.textMuted}
+        maxLength={150}
       />
-      <Pressable style={styles.button} onPress={handleUpdate} disabled={isUpdating}>
-        <Text style={styles.buttonText}>{isUpdating ? "Updating..." : "Update"}</Text>
-      </Pressable>
+      <FieldError message={nicknameError} />
+      <PressableScale
+        style={[styles.button, nameChanged ? styles.buttonPrimary : styles.buttonIdle]}
+        onPress={handleUpdate}
+        disabled={!nameChanged || isUpdating}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !nameChanged || isUpdating }}
+      >
+        <Text style={[styles.buttonText, nameChanged ? styles.buttonTextPrimary : styles.buttonTextIdle]}>
+          {isUpdating ? "Saving..." : "Save name"}
+        </Text>
+      </PressableScale>
 
-      <Text style={styles.sectionLabel}>Account Actions</Text>
-      <Pressable style={styles.button} onPress={handleLogout} disabled={isLoggingOut}>
-        <Text style={styles.buttonText}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
-      </Pressable>
-    </View>
+      <Text style={styles.sectionLabel}>Account</Text>
+      <PressableScale
+        style={[styles.button, styles.logoutButton]}
+        onPress={handleLogout}
+        disabled={isLoggingOut}
+        accessibilityRole="button"
+        accessibilityLabel="Log out"
+      >
+        <MaterialIcons name="logout" size={18} color={colors.errorRed} />
+        <Text style={[styles.buttonText, styles.logoutText]}>{isLoggingOut ? "Logging out..." : "Log Out"}</Text>
+      </PressableScale>
+    </Pressable>
   );
 }
 
@@ -101,7 +207,10 @@ const createStyles = (colors: ThemePalette) =>
       paddingBottom: 24,
     },
     title: { fontSize: 22, fontFamily: "PlusJakartaSans_700Bold", color: colors.textPrimary },
-    identityRow: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 32 },
+    identityRow: { flexDirection: "row", alignItems: "flex-start", gap: 16, marginBottom: 32 },
+    avatarColumn: { alignItems: "center", gap: 6 },
+    identityText: { flex: 1, paddingTop: 6 },
+    changePhoto: { fontFamily: "Montserrat_700Bold", fontSize: 12, color: colors.accentText },
     avatar: {
       width: 56,
       height: 56,
@@ -110,8 +219,23 @@ const createStyles = (colors: ThemePalette) =>
       borderColor: colors.accentText,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
+    avatarImage: { width: 56, height: 56 },
     avatarText: { fontFamily: "Montserrat_700Bold", color: colors.accentText, fontSize: 20 },
+    avatarEditBadge: {
+      position: "absolute",
+      bottom: 0,
+      right: 0,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: colors.gold,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.surface,
+    },
     name: { fontFamily: "Montserrat_700Bold", fontSize: 16, color: colors.textPrimary },
     detail: { fontFamily: "Montserrat_400Regular", fontSize: 13, color: colors.textSecondary },
     sectionLabel: {
@@ -140,4 +264,10 @@ const createStyles = (colors: ThemePalette) =>
       marginBottom: 28,
     },
     buttonText: { fontFamily: "Montserrat_700Bold", fontSize: 15, color: colors.textPrimary },
+    buttonPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+    buttonTextPrimary: { color: colors.white },
+    buttonIdle: { opacity: 1 },
+    buttonTextIdle: { color: colors.textMuted },
+    logoutButton: { flexDirection: "row", justifyContent: "center", gap: 8 },
+    logoutText: { color: colors.errorRed },
   });

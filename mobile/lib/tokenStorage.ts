@@ -1,26 +1,22 @@
-import * as SecureStore from "expo-secure-store";
+import { deleteItem, getItem, setItem } from "./deviceStorage";
 
 const ACCESS_TOKEN_KEY = "chatdesk_access_token";
 const REFRESH_TOKEN_KEY = "chatdesk_refresh_token";
 
 export async function saveTokens(accessToken: string, refreshToken: string) {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+  await setItem(ACCESS_TOKEN_KEY, accessToken);
+  await setItem(REFRESH_TOKEN_KEY, refreshToken);
 }
 
 export async function getAccessToken() {
-  return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+  return getItem(ACCESS_TOKEN_KEY);
 }
 
 export async function getRefreshToken() {
-  return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-}
-
-export async function setAccessToken(accessToken: string) {
-  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
+  return getItem(REFRESH_TOKEN_KEY);
 }
 
 export async function clearTokens() {
-  await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  await deleteItem(ACCESS_TOKEN_KEY);
+  await deleteItem(REFRESH_TOKEN_KEY);
 }

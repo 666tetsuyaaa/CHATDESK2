@@ -12,7 +12,7 @@ export default function ProtectedRoute({ children }) {
     );
   }
 
-  if (!currentUser || currentUser.role !== "admin") {
+  if (!currentUser || !["superadmin", "office_admin"].includes(currentUser.role)) {
     return <Navigate to="/login" replace />;
   }
 

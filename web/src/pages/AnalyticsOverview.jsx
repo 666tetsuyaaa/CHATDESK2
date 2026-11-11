@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { getAnalyticsOverview } from "../api/analytics.js";
+import { getOffices } from "../api/offices.js";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
+import ScrollTable from "../components/ScrollTable.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { formatDuration, formatManila, secondsSince } from "../utils/dates.js";
+
+const FILTER_CLASS =
+  "rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40";
 
 const STATUS_META = {
   pending: { label: "Pending", textClass: "text-status-pending", bgClass: "bg-status-pending" },
@@ -9,18 +16,24 @@ const STATUS_META = {
 };
 
 export default function AnalyticsOverview() {
+  const { currentUser } = useAuth();
+  const isOfficeAdmin = currentUser?.role === "office_admin";
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [officeFilter, setOfficeFilter] = useState("");
+  const [offices, setOffices] = useState([]);
 
+  // Filters apply as soon as they change, like on every other page.
   const loadData = () => {
     setIsLoading(true);
     setError(null);
     const params = {};
     if (dateFrom) params.date_from = dateFrom;
     if (dateTo) params.date_to = dateTo;
+    if (officeFilter) params.office = officeFilter;
 
     getAnalyticsOverview(params)
       .then(setData)
@@ -31,34 +44,39 @@ export default function AnalyticsOverview() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [dateFrom, dateTo, officeFilter]);
 
-  const handleApplyFilter = (e) => {
-    e.preventDefault();
-    loadData();
-  };
+  useEffect(() => {
+    if (!isOfficeAdmin) {
+      getOffices()
+        .then((res) => setOffices(res.data.results ?? res.data))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleClearFilter = () => {
     setDateFrom("");
     setDateTo("");
-    setTimeout(loadData, 0);
+    setOfficeFilter("");
   };
 
-  if (isLoading) return <LoadingState label="Loading analytics..." />;
+  if (isLoading && !data) return <LoadingState label="Loading analytics..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
+  // Staff tickets only - chatbot-answered tickets are counted separately.
   const totalTickets = Object.values(data.tickets_by_status).reduce((sum, count) => sum + count, 0);
-  const resolvedTickets = data.tickets_by_status.resolved ?? 0;
 
   return (
     <section>
-      <form onSubmit={handleApplyFilter} className="mb-6 flex flex-wrap items-end gap-3">
+      <div className="mb-6 flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-sm text-gray-500">From</label>
           <input
             type="date"
             value={dateFrom}
+            max={dateTo || undefined}
             onChange={(e) => setDateFrom(e.target.value)}
             className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
           />
@@ -68,16 +86,23 @@ export default function AnalyticsOverview() {
           <input
             type="date"
             value={dateTo}
+            min={dateFrom || undefined}
             onChange={(e) => setDateTo(e.target.value)}
             className="rounded-full border border-gray-200 px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40"
           />
         </div>
-        <button
-          type="submit"
-          className="rounded-full bg-navy px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:brightness-110"
-        >
-          Apply
-        </button>
+        {!isOfficeAdmin && (
+          <div>
+            <label htmlFor="analytics-office" className="mb-1 block text-sm text-gray-500">Office</label>
+            <select id="analytics-office" value={officeFilter} onChange={(e) => setOfficeFilter(e.target.value)} className={FILTER_CLASS}>
+              <option value="">All Offices</option>
+              <option value="unassigned">Unassigned</option>
+              {offices.map((o) => (
+                <option key={o.office_id} value={String(o.office_id)}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <button
           type="button"
           onClick={handleClearFilter}
@@ -85,9 +110,9 @@ export default function AnalyticsOverview() {
         >
           Clear
         </button>
-      </form>
+      </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
           label="Total Inquiries"
           value={data.total_inquiries}
@@ -103,9 +128,9 @@ export default function AnalyticsOverview() {
           }
         />
         <StatTile
-          label="Total Tickets"
+          label="Staff Tickets"
           value={totalTickets}
-          accentClass="bg-gold/15 text-gold"
+          accentClass="bg-navy/10 text-navy"
           icon={
             <path
               d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6V7Z"
@@ -117,9 +142,9 @@ export default function AnalyticsOverview() {
           }
         />
         <StatTile
-          label="Resolved Tickets"
-          value={resolvedTickets}
-          accentClass="bg-status-resolved/15 text-status-resolved"
+          label="Answered by ChatDesk"
+          value={data.ai_answered_tickets ?? 0}
+          accentClass="bg-gold/15 text-gold-ink"
           icon={
             <path
               d="m20 6-11 11-5-5"
@@ -132,7 +157,24 @@ export default function AnalyticsOverview() {
         />
         <StatTile
           label="Resolution Rate"
+          hint="Staff tickets resolved"
           value={`${Math.round(data.resolution_rate * 100)}%`}
+          accentClass="bg-status-resolved/15 text-status-resolved"
+          icon={
+            <path
+              d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm-3-8 2 2 4-4"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          }
+        />
+        <StatTile
+          label="Avg. Resolution Time"
+          hint="Staff tickets"
+          value={data.avg_resolution_seconds == null ? "—" : formatDuration(data.avg_resolution_seconds)}
+          isText
           accentClass="bg-status-active/15 text-status-active"
           icon={
             <path
@@ -146,6 +188,8 @@ export default function AnalyticsOverview() {
         />
       </div>
 
+      <OfficeWorkload rows={data.offices ?? []} />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-3">
           <SectionHeader
@@ -153,10 +197,11 @@ export default function AnalyticsOverview() {
             subtitle="What students are asking about most"
           />
           <IntentFrequencyChart items={data.intent_frequencies} />
+          <OtherInteractions items={data.other_interactions} />
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
-          <SectionHeader title="Tickets by Status" subtitle="Current escalation pipeline" />
+          <SectionHeader title="Tickets by Status" subtitle="Staff tickets - chatbot answers not included" />
           <TicketStatusDonut counts={data.tickets_by_status} total={totalTickets} />
         </div>
       </div>
@@ -168,21 +213,95 @@ function SectionHeader({ title, subtitle }) {
   return (
     <div className="mb-6">
       <h4 className="font-semibold text-navy">{title}</h4>
-      <p className="text-xs text-gray-400">{subtitle}</p>
+      <p className="text-xs text-gray-500">{subtitle}</p>
     </div>
   );
 }
 
-function StatTile({ label, value, icon, accentClass }) {
+function StatTile({ label, hint, value, icon, accentClass, isText = false }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300">
       <div className={`mb-4 flex h-10 w-10 items-center justify-center rounded-xl ${accentClass}`}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           {icon}
         </svg>
       </div>
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold tabular-nums text-navy">{value}</p>
+      <p className="text-sm text-gray-500">
+        {label}
+        {hint && <span className="block text-xs text-gray-500">{hint}</span>}
+      </p>
+      <p className={`mt-1 font-bold tabular-nums text-navy ${isText ? "text-xl" : "text-3xl"}`}>{value}</p>
+    </div>
+  );
+}
+
+// Which office is falling behind: staff tickets per office, most overdue
+// and pending first.
+function OfficeWorkload({ rows }) {
+  return (
+    <div className="mb-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <SectionHeader
+        title="Pending Work by Office"
+        subtitle="Staff tickets for the selected filters - offices with the most overdue and pending work first"
+      />
+      {rows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-gray-500">No tickets for these filters.</p>
+      ) : (
+        <ScrollTable>
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <th className="py-2 pr-4">Office</th>
+                <th className="px-3 py-2 text-right">Pending</th>
+                <th className="px-3 py-2 text-right" title="Pending longer than the overdue limit">Overdue</th>
+                <th className="px-3 py-2 text-right">Active</th>
+                <th className="px-3 py-2 text-right">Resolved</th>
+                <th className="px-3 py-2 text-right">Answered by ChatDesk</th>
+                <th className="px-3 py-2">Oldest pending</th>
+                <th className="py-2 pl-3">Avg. resolution</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.office_id ?? "unassigned"} className="border-b border-gray-50 text-navy last:border-0">
+                  <td className="py-2.5 pr-4">
+                    <span className="font-medium">{row.office_name}</span>
+                    {row.office_code && <span className="ml-2 font-mono text-xs text-gray-500">{row.office_code}</span>}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums ${row.pending ? "font-bold text-status-pending" : "text-gray-400"}`}>
+                    {row.pending}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums ${row.overdue ? "font-bold text-red-600" : "text-gray-400"}`}>
+                    {row.overdue ?? 0}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{row.active}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{row.resolved}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{row.ai_answered}</td>
+                  <td className="px-3 py-2.5">
+                    {row.oldest_pending_at ? (
+                      <span title={formatManila(row.oldest_pending_at)}>
+                        <span className="font-mono text-xs text-gray-500">{row.oldest_pending_code}</span>
+                        <span className="block text-xs text-status-pending">
+                          waiting {formatDuration(secondsSince(row.oldest_pending_at))}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pl-3">
+                    {row.avg_resolution_seconds == null ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      formatDuration(row.avg_resolution_seconds)
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollTable>
+      )}
     </div>
   );
 }
@@ -216,13 +335,45 @@ function IntentFrequencyChart({ items }) {
               title={`${humanizeIntent(item.intent)}: ${item.count} inquiries`}
             >
               <div
-                className="h-full rounded-full bg-gradient-to-r from-navy to-navy-dark transition-[filter] duration-150 group-hover:brightness-125"
+                className="h-full rounded-full bg-gradient-to-r from-[rgb(var(--c-bar-from))] to-[rgb(var(--c-bar-to))] transition-[filter] duration-150 group-hover:brightness-125"
                 style={{ width: `${widthPct}%` }}
               />
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const OTHER_INTERACTION_LABELS = {
+  conversational: "Small talk",
+  needs_clarification: "Asked to clarify",
+  off_topic: "Off-topic",
+  unclear: "Unclear",
+  duplicate_ticket: "Repeat of open ticket",
+};
+
+// Chat turns that aren't new questions - kept out of the topic chart and the
+// inquiry total, but still worth seeing (e.g. a high off-topic count).
+function OtherInteractions({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="mt-6 border-t border-gray-100 pt-4">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+        Other chatbot interactions (not counted as inquiries)
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span
+            key={item.intent}
+            className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600"
+          >
+            {OTHER_INTERACTION_LABELS[item.intent] ?? humanizeIntent(item.intent)}{" "}
+            <span className="font-semibold tabular-nums text-navy">{item.count}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -249,7 +400,7 @@ function TicketStatusDonut({ counts, total }) {
       <div className="relative h-44 w-44 shrink-0">
         {total === 0 ? (
           <svg viewBox="0 0 120 120" className="h-full w-full">
-            <circle cx="60" cy="60" r={radius} fill="none" stroke="#F3F4F6" strokeWidth="14" />
+            <circle cx="60" cy="60" r={radius} fill="none" stroke="rgb(var(--c-surface-3))" strokeWidth="14" />
           </svg>
         ) : (
           <svg viewBox="0 0 120 120" className="h-full w-full">
@@ -280,7 +431,7 @@ function TicketStatusDonut({ counts, total }) {
         )}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-3xl font-bold tabular-nums text-navy">{total}</span>
-          <span className="text-xs text-gray-400">Tickets</span>
+          <span className="text-xs text-gray-500">Tickets</span>
         </div>
       </div>
 
