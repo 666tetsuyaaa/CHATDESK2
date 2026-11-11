@@ -14,6 +14,22 @@ UNASSIGNED_OFFICE_CODE = "GEN"
 # issue_description is 'Student asked: "..." - <outcome>.' for chat tickets.
 ISSUE_PATTERN = re.compile(r'^Student asked: "(.*)" - (?:AI could not resolve|Answered by ChatDesk)\.$', re.S)
 
+# When a chatbot-answered ticket moves to staff, its answer is moved into
+# conversation_context as these lines (tickets/views.py) - and read back by
+# Ticket.chatbot_answer so the student still sees it.
+CHATBOT_ANSWER_PREFIX = "ChatDesk answered: "
+FOLLOW_UP_NOTE = "Student asked for staff follow-up."
+STAFF_STEPPED_IN_NOTE = "Staff followed up."
+CHATBOT_ANSWER_PATTERN = re.compile(
+    re.escape(CHATBOT_ANSWER_PREFIX)
+    + r"(.*?)\n(?:"
+    + re.escape(FOLLOW_UP_NOTE)
+    + "|"
+    + re.escape(STAFF_STEPPED_IN_NOTE)
+    + ")",
+    re.S,
+)
+
 
 def overdue_cutoff():
     return timezone.now() - timedelta(days=settings.TICKET_OVERDUE_DAYS)
@@ -129,6 +145,15 @@ class Ticket(models.Model):
             and self.waiting_since is not None
             and self.waiting_since < overdue_cutoff()
         )
+
+    @property
+    def chatbot_answer(self):
+        """ChatDesk's earlier answer on a ticket that moved from the chatbot
+        to staff (follow-up request or staff message), else None."""
+        if self.is_ai_resolved:
+            return None
+        match = CHATBOT_ANSWER_PATTERN.search(self.conversation_context or "")
+        return (match.group(1).strip() or None) if match else None
 
     @property
     def student_question(self):

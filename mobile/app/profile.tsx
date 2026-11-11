@@ -19,19 +19,9 @@ import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import axiosClient from "../lib/axiosClient";
+import { courseName } from "../lib/courses";
 import { serverFieldErrors, validatePersonName } from "../lib/validation";
 import type { ThemePalette } from "../theme/colors";
-
-const COURSE_LABELS: Record<string, string> = {
-  BSIT: "BS Information Technology",
-  BSCS: "BS Computer Science",
-  BSN: "BS Nursing",
-  BSBA: "BS Business Administration",
-  BSED: "BS Secondary Education",
-  BSA: "BS Accountancy",
-  BSCE: "BS Civil Engineering",
-  BSEE: "BS Electrical Engineering",
-};
 
 export default function ProfileScreen() {
   const { currentUser, logout, updateCurrentUser } = useAuth();
@@ -45,7 +35,7 @@ export default function ProfileScreen() {
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
   const fullName = `${currentUser?.first_name ?? ""} ${currentUser?.last_name ?? ""}`.trim();
-  const courseLabel = currentUser?.course ? COURSE_LABELS[currentUser.course] ?? currentUser.course : "—";
+  const courseLabel = courseName(currentUser?.course);
   // Save only lights up once the name actually differs from the saved one.
   const nameChanged = nickname.trim() !== (currentUser?.first_name ?? "");
 

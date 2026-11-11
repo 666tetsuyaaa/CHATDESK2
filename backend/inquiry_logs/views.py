@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from config.query_params import date_param, id_param, office_param
 from faqs.models import Faq
 from tickets.services import create_ai_answered_ticket, create_ticket_from_log
 from users.colleges import filter_by_college
@@ -22,17 +23,18 @@ from .unanswered import MAX_LOGS, UNANSWERED_INTENTS, group_unanswered
 UNANSWERED_DEFAULT_DAYS = 90
 
 
-def logs_for_office_scope(qs, user, office_param):
+def logs_for_office_scope(qs, user, params):
     """Office Admins: logs tagged with their office (picked in the mobile
     category selector) or that escalated into a ticket routed there - a log
     with neither can't be attributed to any one office. Super Admin:
     everything, or ?office=<id> / ?office=unassigned."""
     if user.role == user.Role.OFFICE_ADMIN:
         return qs.filter(Q(office=user.office) | Q(ticket__office=user.office)).distinct()
-    if office_param == "unassigned":
+    office = office_param(params)
+    if office == "unassigned":
         return qs.filter(office__isnull=True).filter(Q(ticket__isnull=True) | Q(ticket__office__isnull=True))
-    if office_param:
-        return qs.filter(Q(office_id=office_param) | Q(ticket__office_id=office_param)).distinct()
+    if office:
+        return qs.filter(Q(office_id=office) | Q(ticket__office_id=office)).distinct()
     return qs
 
 
@@ -134,13 +136,13 @@ class InquiryLogListView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = InquiryLog.objects.select_related("user", "office", "ticket")
-        qs = logs_for_office_scope(qs, self.request.user, self.request.query_params.get("office"))
+        qs = logs_for_office_scope(qs, self.request.user, self.request.query_params)
         qs = filter_by_college(qs, self.request.query_params.get("college"))
 
         intent = self.request.query_params.get("intent")
         if intent:
             qs = qs.filter(detected_intent=intent)
-        user_id = self.request.query_params.get("user_id")
+        user_id = id_param(self.request.query_params, "user_id")
         if user_id:
             qs = qs.filter(user_id=user_id)
         student = (self.request.query_params.get("student") or "").strip()
@@ -153,10 +155,10 @@ class InquiryLogListView(generics.ListAPIView):
         is_escalated = self.request.query_params.get("is_escalated")
         if is_escalated is not None:
             qs = qs.filter(is_escalated=is_escalated.lower() in ("1", "true", "yes"))
-        date_from = self.request.query_params.get("date_from")
+        date_from = date_param(self.request.query_params, "date_from")
         if date_from:
             qs = qs.filter(timestamp__date__gte=date_from)
-        date_to = self.request.query_params.get("date_to")
+        date_to = date_param(self.request.query_params, "date_to")
         if date_to:
             qs = qs.filter(timestamp__date__lte=date_to)
         return qs
@@ -185,7 +187,7 @@ class UnansweredQuestionsView(APIView):
         logs = InquiryLog.objects.filter(
             detected_intent__in=UNANSWERED_INTENTS, timestamp__gte=timezone.now() - timedelta(days=days)
         ).select_related("office", "ticket__office")
-        logs = logs_for_office_scope(logs, request.user, request.query_params.get("office"))
+        logs = logs_for_office_scope(logs, request.user, request.query_params)
         logs = list(logs.order_by("-timestamp")[:MAX_LOGS])
 
         faqs = Faq.objects.all()

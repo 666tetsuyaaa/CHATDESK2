@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { getTicketMessages, getTickets, sendTicketMessage, updateTicket } from "../api/tickets.js";
+import { getTicket, getTicketMessages, getTickets, sendTicketMessage, updateTicket } from "../api/tickets.js";
 import { getOffices } from "../api/offices.js";
 import FieldError, { invalidInput } from "../components/FieldError.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
@@ -169,8 +169,14 @@ export default function TicketManagement() {
       const res = await sendTicketMessage(ticketId, answerDraft.trim());
       setThread((prev) => [...prev, res.data]);
       setAnswerDraft("");
-      loadTickets();
       loadCounts();
+      // Update just this row (new status, message count) rather than
+      // reloading the list: a chatbot-answered ticket moves to staff when
+      // messaged, and a reload under the "Answered by ChatDesk" filter would
+      // make it vanish along with the message just sent.
+      getTicket(ticketId)
+        .then((fresh) => setTickets((prev) => prev.map((t) => (t.ticket_id === ticketId ? fresh.data : t))))
+        .catch(() => {});
     } catch (err) {
       const { fields, general } = serverErrors(err, "Could not send this message.");
       setRowErrors({ resolution: fields.body, general });
@@ -465,7 +471,7 @@ export default function TicketManagement() {
                               <dl className="mb-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
                                 <TimelineItem label="Submitted" value={formatManila(ticket.created_at)} />
                                 {ticket.reopened_at && (
-                                  <TimelineItem label="Follow-up requested" value={formatManila(ticket.reopened_at)} />
+                                  <TimelineItem label="Moved to staff" value={formatManila(ticket.reopened_at)} />
                                 )}
                                 <TimelineItem
                                   label={ticket.is_ai_resolved ? "Answered by ChatDesk" : "Resolved"}

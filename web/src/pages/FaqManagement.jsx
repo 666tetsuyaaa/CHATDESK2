@@ -4,6 +4,7 @@ import { getOffices } from "../api/offices.js";
 import FaqFormModal, { CATEGORIES } from "../components/FaqFormModal.jsx";
 import Pagination from "../components/Pagination.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -21,6 +22,7 @@ export default function FaqManagement() {
   const [editingFaq, setEditingFaq] = useState(null);
   const [pendingDeleteFaq, setPendingDeleteFaq] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -33,7 +35,7 @@ export default function FaqManagement() {
       page,
       search: debouncedSearch || undefined,
       category: categoryFilter === "All" ? undefined : categoryFilter,
-      office: officeFilter === "All" || officeFilter === "Unassigned" ? undefined : officeFilter,
+      office: officeFilter === "All" ? undefined : officeFilter === "Unassigned" ? "unassigned" : officeFilter,
     })
       .then((res) => {
         setFaqs(res.data.results ?? res.data);
@@ -82,6 +84,9 @@ export default function FaqManagement() {
       setPendingDeleteFaq(null);
       loadFaqs();
       loadCategoriesInUse();
+    } catch (err) {
+      setPendingDeleteFaq(null);
+      setToastMessage(err.response?.data?.message || "Could not delete this FAQ. Please try again.");
     } finally {
       setIsDeleting(false);
     }
@@ -285,6 +290,7 @@ export default function FaqManagement() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeleteFaq(null)}
       />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage("")} />
     </section>
   );
 }

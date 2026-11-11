@@ -8,7 +8,7 @@ import { PressableScale } from "../../components/pressable-scale";
 import { SkeletonAnnouncementCard } from "../../components/skeleton";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
-import axiosClient from "../../lib/axiosClient";
+import { getAllPages } from "../../lib/allPages";
 import type { ThemePalette } from "../../theme/colors";
 
 type Announcement = {
@@ -40,16 +40,29 @@ export default function AnnouncementsScreen() {
 
   const loadAnnouncements = async () => {
     try {
-      const { data } = await axiosClient.get("/announcements/");
-      setAnnouncements(data.results ?? data);
+      setAnnouncements(await getAllPages<Announcement>("/announcements/"));
       setLoadFailed(false);
     } catch {
       setLoadFailed(true);
     }
   };
 
+  // First load. State is set from the request's callback (not directly in
+  // the effect), and skipped if the screen unmounted meanwhile.
   useEffect(() => {
-    loadAnnouncements();
+    let cancelled = false;
+    getAllPages<Announcement>("/announcements/")
+      .then((rows) => {
+        if (cancelled) return;
+        setAnnouncements(rows);
+        setLoadFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleRefresh = async () => {

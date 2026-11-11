@@ -30,6 +30,14 @@ This is the agreed shape that the Django backend developer will build against, a
 
 - Non-field errors (e.g. wrong login password) come in details.non_field_errors -
   show that to the user, not the generic "Invalid request parameters." message.
+- List filters are checked: an id filter that isn't a positive whole number
+  (?office=abc, ?user_id=abc) or a date that isn't a real YYYY-MM-DD date
+  (?date_from=2026-13-45) returns 400 under the parameter's name, e.g.
+  { "office": ["Must be a number."] } or
+  { "date_from": ["Use a valid date in YYYY-MM-DD format."] }.
+- Lists a screen shows in full (phases, announcements, offices in dropdowns
+  and the app's office picker) are still paginated - clients request page 1,
+  2, ... until "next" is null, rather than using only the first 20.
 - Rate limits: some endpoints are throttled (noted per endpoint). Over the limit
   returns 429 with error "throttled" and a message saying when to retry:
   { "error": "throttled", "message": "Request was throttled. Expected available in 42 seconds.", "details": {} }
@@ -74,7 +82,7 @@ Response 201:
 # Optional backend settings (both off by default): ALLOWED_EMAIL_DOMAINS limits
 # registration to e.g. ustp.edu.ph (400 under details.email);
 # REQUIRE_EMAIL_VERIFICATION blocks student login until the link is clicked.
-# Throttled: 10/hour per IP.
+# Throttled: 100/hour per IP (loose, since a whole campus Wi-Fi can share one IP).
 
 ### POST /api/v1/auth/login/
 Public.
@@ -83,7 +91,7 @@ Response 200: Same shape as the register response.
 Response 400: reason in details.non_field_errors - "Invalid email or password.",
 "This account has been deactivated.", or (only with REQUIRE_EMAIL_VERIFICATION)
 "Please verify your email address first...".
-Throttled: 20/min per IP and 10/min per email.
+Throttled: 100/min per IP and 10/min per email.
 
 ### POST /api/v1/auth/token/refresh/
 Public (requires valid refresh token).
@@ -91,6 +99,10 @@ Request: { "refresh": "jwt_refresh_token_string" } → Response 200: { "access":
 # Refresh tokens rotate: the old one is blacklisted the moment it's used.
 # Clients MUST store the new "refresh" from every response - reusing the old
 # one returns 401 (this is what logged users out ~30 minutes after login).
+# A deactivated account's refresh token is refused with 401
+# ("This account has been deactivated."), so the apps log the user out.
+# Clients log out only on a 401/400 from this endpoint - a network error,
+# timeout or 5xx just fails that request and the next one tries again.
 
 ### POST /api/v1/auth/verify-email/resend/
 Public. Emails a fresh verification link (older links stop working). Always
@@ -98,7 +110,7 @@ the same response, whether or not the email belongs to an unverified account.
 Request: { "email": "student@gmail.com" }
 Response 200: { "message": "If that email belongs to an unverified account, a new verification link has been sent." }
 # dev_verify_url is included under the same DEBUG-only fallback as register.
-# Throttled: 5/hour per IP and per email.
+# Throttled: 60/hour per IP and 5/hour per email.
 
 ### POST /api/v1/auth/logout/
 Auth required. Blacklists the refresh token.
@@ -135,7 +147,7 @@ Response 200: { "message": "If that email is registered, a password reset code h
 # Dev fallback: only when DEBUG=True and backend/.env has no Gmail App
 # Password, the response also includes "dev_code": "123456". It is never
 # returned with DEBUG=False.
-# Throttled: 20/hour per IP and 5/hour per email.
+# Throttled: 60/hour per IP and 5/hour per email.
 
 ### POST /api/v1/auth/password-reset/confirm/
 Public. Mobile "Forgot Password" step 2. Verifies the emailed code and sets
@@ -154,7 +166,7 @@ Response 400 (wrong/expired/already-used code, or unknown email):
 # A code stops working after 5 wrong guesses (request a new one).
 # A successful reset signs the user out of every existing session (all their
 # refresh tokens are blacklisted).
-# Throttled: 30/hour per IP.
+# Throttled: 100/hour per IP.
 # Not on the original ERD - tbl_password_reset_code added post-Sprint-1-baseline
 # to support this flow; flagged for the team to fold into the next ERD revision.
 
@@ -186,11 +198,11 @@ Admin only. Manages the same tbl_user accounts students log into on mobile -
 deactivating a user here immediately blocks their next login attempt.
 
 Method,Path,Notes
-GET,/api/v1/users/,"List users. ?search= (name/email), ?role=student|admin, ?status=active|inactive."
+GET,/api/v1/users/,"List users, sorted by name A-Z. ?search= (name/email), ?role=student|office_admin|superadmin, ?status=active|inactive, ?sort=desc (Z-A)."
 POST,/api/v1/users/,"Create a student or admin account directly (admin picks the role; distinct from public self-registration)."
 GET,/api/v1/users/{user_id}/,Detail view.
-PATCH,/api/v1/users/{user_id}/,"Edit first_name/last_name/role/course/school_id/is_active. An admin cannot deactivate or demote their own account (403)."
-DELETE,/api/v1/users/{user_id}/,"Remove an account. An admin cannot delete their own account (403)."
+PATCH,/api/v1/users/{user_id}/,"Edit first_name/last_name/role/course/school_id/is_active/office. An admin cannot deactivate or demote their own account (403). office is kept only for office_admin (required there) and cleared for every other role. Changing role also sets Django /admin access to match: only superadmin has it."
+DELETE,/api/v1/users/{user_id}/,"Remove an account. An admin cannot delete their own account (403). 400 (with a message saying to deactivate instead) if the account has chat history or tickets, or has posted announcements - deleting would erase those. Deactivating (PATCH is_active=false) blocks the login and keeps the records."
 GET,/api/v1/colleges/,"Any authenticated user. Colleges and their course codes, for college filters (not paginated): [{ ""key"": ""it_computing"", ""name"": ""Information Technology & Computing"", ""courses"": [{ ""code"": ""BSIT"", ""name"": ""BS Information Technology"" }] }]"
 # Input rules (register, PATCH /auth/me/, admin create/edit - 400 under the field):
 # - first_name / last_name: must contain letters, max 150.
@@ -213,7 +225,7 @@ GET,/api/v1/colleges/,"Any authenticated user. Colleges and their course codes, 
 category enum: Enrollment, Scholarship, Clearance, Discipline, General.
 
 Method,Path,Roles,Notes
-GET,/api/v1/faqs/,all,"List FAQs, supports ?category= filter."
+GET,/api/v1/faqs/,all,"List FAQs. ?category=, ?search= (question or intent_keyword), and ?office=<id> or ?office=unassigned (FAQs with no office). Office Admins always get only their own office's FAQs."
 POST,/api/v1/faqs/,admin,Create a new FAQ entry.
 GET,/api/v1/faqs/popular/,all,"The FAQs students ask most (chat quick actions). ?office= narrows to that office's FAQs + uncategorized ones; ?limit= (default 3, max 10). Not paginated: [{ ""faq_id"": 105, ""question_text"": ""..."" }]"
 GET,/api/v1/faqs/{faq_id}/,all,Detail view.
@@ -223,8 +235,11 @@ DELETE,/api/v1/faqs/{faq_id}/,admin,Remove obsolete FAQ.
 # (students see it word for word - no placeholders like "OSA ONLY"), and
 # question_text/answer_content must not contain the broken character "�"
 # (usually from copy-pasting). intent_keyword: 2-100 letters, numbers or
-# underscores, no spaces. question_text: max 300. All return 400 under the
-# field name.
+# underscores, no spaces; unique ignoring capitals ("Enrollment" is refused
+# when "enrollment" exists); and not one of the chatbot's own outcome names
+# (unresolved_complex_query, duplicate_ticket, conversational,
+# needs_clarification, off_topic, unclear). question_text: max 300. All
+# return 400 under the field name.
 
 ## Chat Interaction & Inquiry Logging
 This handles the core AI interaction. The frontend posts a message, the backend hits the OpenAI API, logs the interaction in tbl_inquiry_logs, and returns the response.
@@ -370,7 +385,8 @@ Optional ?days= (default 90, 1-365) and (Super Admin) ?office=<id> or
   "waiting_since": "2026-06-15T10:16:00Z",
   "is_overdue": false,
   "message_count": 2,
-  "last_staff_message_at": "2026-06-15T11:02:00Z"
+  "last_staff_message_at": "2026-06-15T11:02:00Z",
+  "chatbot_answer": null
 }
 # ticket_code: office code + Manila date (MMDDYY) + that office's 3-digit
 # number for the day, e.g. OSA103126001 = OSA's first ticket on Oct 31, 2026.
@@ -380,8 +396,9 @@ Optional ?days= (default 90, 1-365) and (Super Admin) ?office=<id> or
 # an FAQ (created already resolved, issue_description ends "- Answered by
 # ChatDesk.", resolution = the FAQ answer). It becomes false once a student
 # asks for follow-up or staff reply to it.
-# reopened_at: when the student asked for staff follow-up on an AI-answered
-# ticket; staff resolution time is measured from here (otherwise created_at).
+# reopened_at: when an AI-answered ticket moved to staff (the student asked
+# for follow-up, or staff messaged them); staff resolution time is measured
+# from here (otherwise created_at).
 # resolution: the admin's written answer, set via PATCH alongside status. Null
 # until an admin responds. Not on the original ERD - added post-Sprint-1-
 # baseline to fulfill the "add resolution notes" PATCH behavior already
@@ -396,6 +413,11 @@ Optional ?days= (default 90, 1-365) and (Super Admin) ?office=<id> or
 # pending. Null for chatbot-answered tickets. is_overdue: a staff ticket still
 # "pending" more than TICKET_OVERDUE_DAYS (default 2) after waiting_since.
 # "active" means staff asked the student something, so it is never overdue.
+# chatbot_answer: read-only. Once a chatbot-answered ticket moves to staff
+# (follow-up request or staff message), this holds the chatbot's answer
+# (resolution is cleared then), so the app can still show "ChatDesk's
+# answer". Null otherwise,
+# including while the ticket is still chatbot-answered (use resolution then).
 # message_count / last_staff_message_at: the ticket's conversation (see
 # /messages/ below); the app uses last_staff_message_at for its "new reply"
 # badge. None of these are on the original ERD.
@@ -405,10 +427,10 @@ GET,/api/v1/tickets/,admin,"List tickets. ?status=, ?category=, ?source=staff|ai
 GET,/api/v1/tickets/,student,"Student's own tickets (staff and chatbot-answered). ?source=staff|ai."
 POST,/api/v1/tickets/,student,Manual ticket creation (if student bypasses AI).
 GET,/api/v1/tickets/{ticket_id}/,all,Detail view (students can only view their own).
-PATCH,/api/v1/tickets/{ticket_id}/,admin,"Update ticket status, title, subject_category, or add resolution notes (resolved_by/resolved_at are set automatically on resolve). Resolving requires a non-empty resolution (400 under details.resolution); resolution max 5000. Replying to an AI-answered ticket moves it to staff (is_ai_resolved becomes false). Changing status to resolved emails the student the ticket code, their question and the answer (sent in the background after saving; a failed email doesn't undo the answer). Returns the full ticket."
+PATCH,/api/v1/tickets/{ticket_id}/,admin,"Update ticket status, title, subject_category, or add resolution notes (resolved_by/resolved_at are set automatically on resolve). Resolving requires a non-empty resolution (400 under details.resolution); resolution max 5000. Replying to an AI-answered ticket moves it to staff (is_ai_resolved becomes false). Moving a resolved ticket back to pending or active clears resolved_at and resolved_by (whoever answers it next is recorded); the earlier resolution text is kept. Changing status to resolved emails the student the ticket code, their question and the answer (sent in the background after saving; a failed email doesn't undo the answer). Returns the full ticket."
 POST,/api/v1/tickets/{ticket_id}/follow-up/,student,"""I still need help"" on an AI-answered ticket (own tickets only - others 404). Optional { ""message"": ""..."" } (max 1000). Reopens it as pending for staff with the same ticket_code, sets reopened_at, moves the chatbot's answer into conversation_context. 400 if the ticket is already with staff. Returns the ticket."
 GET,/api/v1/tickets/{ticket_id}/messages/,all,"The ticket's conversation between student and staff, oldest first: [{ ""message_id"", ""ticket"", ""sender_role"": ""student""|""staff"", ""sender_name"", ""body"", ""created_at"" }]. Same access as the ticket (others 404). Students see staff as ""<office name> staff""; admins see the staff member's name."
-POST,/api/v1/tickets/{ticket_id}/messages/,all,"{ ""body"": ""..."" } (required, max 2000). Staff message: a pending ticket becomes active (waiting on the student) and the student is emailed the message. Student message: the ticket goes back to pending for staff (a resolved one is reopened, resolved_at cleared; a ticket already pending keeps its waiting_since). Students get 400 on a chatbot-answered ticket - they use follow-up first. Throttled 10/min per user. Returns the message (201)."
+POST,/api/v1/tickets/{ticket_id}/messages/,all,"{ ""body"": ""..."" } (required, max 2000). Staff message: a pending ticket becomes active (waiting on the student) and the student is emailed the message. On a chatbot-answered ticket it becomes a staff ticket that is active: is_ai_resolved false, the chatbot's answer moved into conversation_context, resolution/resolved_at/resolved_by cleared, reopened_at set. Student message: the ticket goes back to pending for staff (a resolved one is reopened, resolved_at and resolved_by cleared, the earlier resolution kept; a ticket already pending keeps its waiting_since). Students get 400 on a chatbot-answered ticket - they use follow-up first. Throttled 10/min per user. Returns the message (201)."
 
 ## Analytics (Admin Dashboard)
 
@@ -466,7 +488,8 @@ Admin only. Optional ?date_from=, ?date_to= (YYYY-MM-DD), ?college=<key>, and
 `python manage.py send_overdue_reminders` (add --dry-run to preview) emails
 each Office Admin the list of their office's overdue tickets ("You have 3
 ChatDesk tickets waiting"), and each Super Admin the overdue tickets with no
-office yet. Nothing is sent when there are none. Run it once a day from the
+office yet, plus those in an office that has no active Office Admin (so they
+can reroute them or add an admin). Nothing is sent when there are none. Run it once a day from the
 host's scheduler (cron, or a Cron Job / Scheduled Task on the hosting
 platform). ADMIN_DASHBOARD_URL in backend/.env adds a link to the dashboard.
 
@@ -480,7 +503,10 @@ platform). ADMIN_DASHBOARD_URL in backend/.env adds a link to the dashboard.
   with no office gets 403 / empty results everywhere.
 - Announcements: title and content required (not blank), content max 5000.
   Phases: name required (max 100), guidance_message max 500, at most 5
-  suggested_questions of up to 200 characters each.
+  suggested_questions of up to 200 characters each. suggested_questions is
+  no longer used: the dashboard doesn't edit it, the calendar import doesn't
+  fill it, and the app doesn't show it (the welcome screen shows the
+  most-asked FAQs instead). It stays in the API so nothing breaks.
 - Phases may overlap. GET /api/v1/phases/current/ uses today's Manila date and,
   when several phases are active, returns the most recently started one (the
   shorter one on a tie).

@@ -2,6 +2,7 @@ import re
 
 from rest_framework import serializers
 
+from inquiry_logs.models import SYSTEM_INTENTS
 from offices.models import Office
 
 from .models import Faq
@@ -40,6 +41,20 @@ class FaqSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Use 2-100 letters, numbers or underscores, no spaces (e.g. scholarship_requirements)."
             )
+        # These names mark chatbot outcomes in the inquiry logs (escalated,
+        # small talk, ...). An FAQ using one would have its real answers
+        # counted as that outcome in analytics and Unanswered Questions.
+        if value.lower() in SYSTEM_INTENTS:
+            raise serializers.ValidationError(
+                f'"{value}" is reserved by the chatbot. Please choose a different keyword.'
+            )
+        # The database only rejects an exact repeat; "Enrollment" and
+        # "enrollment" would be two FAQs that look like one.
+        taken = Faq.objects.filter(intent_keyword__iexact=value)
+        if self.instance is not None:
+            taken = taken.exclude(pk=self.instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError("An FAQ with this keyword already exists.")
         return value
 
     def validate_question_text(self, value):

@@ -3,6 +3,7 @@ from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.query_params import id_param, office_param
 from inquiry_logs.models import InquiryLog
 
 from .models import Faq
@@ -12,14 +13,15 @@ from .serializers import FaqSerializer
 
 class FaqListCreateView(generics.ListCreateAPIView):
     """?search= matches question_text or intent_keyword. ?category=,
-    ?office= filter exactly. All combine with AND; paginated per
+    ?office=<id> or ?office=unassigned (no office) filter exactly. All combine with AND; paginated per
     settings.REST_FRAMEWORK PAGE_SIZE."""
 
     serializer_class = FaqSerializer
     permission_classes = [IsAdminOrReadOnly]
 
     def get_queryset(self):
-        qs = Faq.objects.all().order_by("-created_at")
+        # The stored embeddings are only needed by smart FAQ matching.
+        qs = Faq.objects.defer("embedding", "embedding_text").order_by("-created_at")
         user = self.request.user
         category = self.request.query_params.get("category")
         if category:
@@ -32,8 +34,10 @@ class FaqListCreateView(generics.ListCreateAPIView):
         # param is for Super Admin filtering and is ignored for them.
         if user.is_authenticated and user.role == user.Role.OFFICE_ADMIN:
             return qs.filter(office=user.office)
-        office = self.request.query_params.get("office")
-        if office:
+        office = office_param(self.request.query_params)
+        if office == "unassigned":
+            qs = qs.filter(office__isnull=True)
+        elif office:
             qs = qs.filter(office_id=office)
         return qs
 
@@ -64,8 +68,8 @@ class PopularFaqListView(APIView):
         except ValueError:
             limit = 3
 
-        faqs = Faq.objects.all()
-        office = request.query_params.get("office")
+        faqs = Faq.objects.only("faq_id", "intent_keyword", "question_text", "created_at")
+        office = id_param(request.query_params, "office")
         if office:
             faqs = faqs.filter(Q(office_id=office) | Q(office__isnull=True))
         faqs_by_keyword = {faq.intent_keyword: faq for faq in faqs.order_by("-created_at")}
@@ -92,7 +96,7 @@ class FaqDetailView(generics.RetrieveUpdateDestroyAPIView):
     lookup_field = "faq_id"
 
     def get_queryset(self):
-        qs = Faq.objects.all()
+        qs = Faq.objects.defer("embedding", "embedding_text")
         user = self.request.user
         if user.is_authenticated and user.role == user.Role.OFFICE_ADMIN:
             return qs.filter(office=user.office)

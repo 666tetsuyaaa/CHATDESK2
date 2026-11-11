@@ -1,10 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import * as Haptics from "expo-haptics";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   Image,
   Keyboard,
@@ -27,8 +28,10 @@ import { SkeletonTicketRow } from "../../components/skeleton";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
+import { getAllPages } from "../../lib/allPages";
 import axiosClient from "../../lib/axiosClient";
 import { formatDuration, formatManila, staffResolutionSeconds } from "../../lib/dates";
+import { countUnseen, hasUnreadStaffMessage, readJson, seenMessagesKey, seenTicketsKey } from "../../lib/ticketBadge";
 import type { ThemePalette } from "../../theme/colors";
 
 type Ticket = {
@@ -43,6 +46,8 @@ type Ticket = {
   created_at: string;
   reopened_at: string | null;
   resolved_at: string | null;
+  // ChatDesk's earlier answer, once a chatbot-answered ticket moved to staff.
+  chatbot_answer?: string | null;
   message_count?: number;
   last_staff_message_at?: string | null;
 };
@@ -58,26 +63,6 @@ type TicketMessage = {
 type TicketFilter = "staff" | "ai";
 
 const MESSAGE_MAX_LENGTH = 2000;
-
-const seenTicketsKey = (userId: number) => `chatdesk_seen_resolved_tickets_${userId}`;
-// ticket id -> when the student last opened it, so a newer staff message
-// shows on the tab badge.
-const seenMessagesKey = (userId: number) => `chatdesk_seen_ticket_messages_${userId}`;
-
-async function readJson<T>(key: string, fallback: T): Promise<T> {
-  try {
-    const stored = await AsyncStorage.getItem(key);
-    return stored ? (JSON.parse(stored) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function hasUnreadStaffMessage(ticket: Ticket, seenAt: Record<string, string>) {
-  if (!ticket.last_staff_message_at) return false;
-  const lastSeen = seenAt[String(ticket.ticket_id)];
-  return !lastSeen || new Date(ticket.last_staff_message_at) > new Date(lastSeen);
-}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pending",
@@ -123,16 +108,9 @@ export default function TicketsScreen() {
 
   const updateBadgeFromTickets = async (rows: Ticket[]) => {
     if (!currentUser) return;
-    const seenSet = new Set(await readJson<number[]>(seenTicketsKey(currentUser.user_id), []));
-    const seenAt = await readJson<Record<string, string>>(seenMessagesKey(currentUser.user_id), {});
+    const { count, seenAt } = await countUnseen(currentUser.user_id, rows);
     setSeenMessages(seenAt);
-    // Only staff replies are news - ChatDesk answers were already seen in chat.
-    const unseen = rows.filter(
-      (t) =>
-        (t.status === "resolved" && !t.is_ai_resolved && !seenSet.has(t.ticket_id)) ||
-        hasUnreadStaffMessage(t, seenAt)
-    ).length;
-    setUnseenCount(unseen);
+    setUnseenCount(count);
   };
 
   // Lift the ticket card above the keyboard while replying (same approach
@@ -175,6 +153,19 @@ export default function TicketsScreen() {
     if (tickets) updateBadgeFromTickets(tickets);
   };
 
+  // The student reopened a resolved ticket: forget that its answer was seen,
+  // so staff's next answer lights up the tab badge again.
+  const forgetSeenResolution = async (ticketId: number) => {
+    if (!currentUser) return;
+    const key = seenTicketsKey(currentUser.user_id);
+    const seenIds = await readJson<number[]>(key, []);
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(seenIds.filter((id) => id !== ticketId)));
+    } catch {
+      // Non-critical: only the badge for this ticket's next answer is missed.
+    }
+  };
+
   const handleSendReply = async () => {
     const ticket = viewingTicket;
     const body = reply.trim();
@@ -188,6 +179,7 @@ export default function TicketsScreen() {
       setReply("");
       // A reply sends the ticket back to staff (and reopens it if resolved).
       setViewingTicket({ ...ticket, status: "pending", resolved_at: null });
+      if (ticket.status === "resolved") await forgetSeenResolution(ticket.ticket_id);
       loadTickets();
       requestAnimationFrame(() => modalScrollRef.current?.scrollToEnd({ animated: true }));
     } catch (error: any) {
@@ -208,20 +200,9 @@ export default function TicketsScreen() {
 
   const loadTickets = async () => {
     try {
-      // The endpoint pages 20 at a time - follow `next` so older tickets (and
-      // the unread badge, which counts them) aren't silently cut off.
-      const rows: Ticket[] = [];
-      let nextUrl: string | null = "/tickets/";
-      while (nextUrl) {
-        const { data }: { data: { results?: Ticket[]; next?: string | null } | Ticket[] } =
-          await axiosClient.get(nextUrl);
-        if (Array.isArray(data)) {
-          rows.push(...data);
-          break;
-        }
-        rows.push(...(data.results ?? []));
-        nextUrl = data.next ?? null;
-      }
+      // Every page, so older tickets (and the unread badge, which counts
+      // them) aren't cut off at 20.
+      const rows = await getAllPages<Ticket>("/tickets/");
       setTickets(rows);
       setLoadFailed(false);
       updateBadgeFromTickets(rows);
@@ -235,23 +216,22 @@ export default function TicketsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Set by the chat's "View Ticket" button. The tab stays mounted, so this
-  // runs on every new ticketId, then clears it so it won't reopen later.
-  const { ticketId } = useLocalSearchParams<{ ticketId?: string }>();
-  useEffect(() => {
-    if (!ticketId) return;
-    (async () => {
-      try {
-        const { data } = await axiosClient.get<Ticket>(`/tickets/${ticketId}/`);
-        handleView(data);
-      } catch {
-        // Not found or not this student's ticket - just show the list.
-      }
+  // The tab stays mounted, so reload whenever it is opened (new tickets
+  // from the chat) and when the app comes back to the foreground (staff
+  // may have replied meanwhile) - that keeps the list and badge current.
+  useFocusEffect(
+    useCallback(() => {
       loadTickets();
-      router.setParams({ ticketId: undefined });
-    })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadTickets();
+    });
+    return () => subscription.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticketId]);
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -301,6 +281,24 @@ export default function TicketsScreen() {
       // Badge just won't clear for this ticket until next successful write - non-critical.
     }
   };
+
+  // Set by the chat's "View Ticket" button. The tab stays mounted, so this
+  // runs on every new ticketId, then clears it so it won't reopen later.
+  const { ticketId } = useLocalSearchParams<{ ticketId?: string }>();
+  useEffect(() => {
+    if (!ticketId) return;
+    (async () => {
+      try {
+        const { data } = await axiosClient.get<Ticket>(`/tickets/${ticketId}/`);
+        handleView(data);
+      } catch {
+        // Not found or not this student's ticket - just show the list.
+      }
+      loadTickets();
+      router.setParams({ ticketId: undefined });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticketId]);
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
@@ -516,12 +514,26 @@ export default function TicketsScreen() {
                   <Text style={styles.modalSectionLabel}>You asked</Text>
                   <Text style={styles.modalSectionText}>{displayQuestion(viewingTicket.issue_description)}</Text>
 
+                  {/* A chatbot answer that moved to staff keeps showing what
+                      ChatDesk said first. */}
+                  {!viewingTicket.is_ai_resolved && viewingTicket.chatbot_answer ? (
+                    <>
+                      <Text style={[styles.modalSectionLabel, styles.modalSectionLabelSpaced]}>ChatDesk&apos;s answer</Text>
+                      <FormattedAnswer text={viewingTicket.chatbot_answer} style={styles.modalSectionText} />
+                    </>
+                  ) : null}
+
                   {/* The answer shows once there is one. Until then, the
                       conversation below is where staff reply. */}
-                  {viewingTicket.resolution && (viewingTicket.is_ai_resolved || viewingTicket.status === "resolved") ? (
+                  {/* A reopened ticket keeps staff's earlier answer, shown as such. */}
+                  {viewingTicket.resolution ? (
                     <>
                       <Text style={[styles.modalSectionLabel, styles.modalSectionLabelSpaced]}>
-                        {viewingTicket.is_ai_resolved ? "ChatDesk's answer" : "Final answer"}
+                        {viewingTicket.is_ai_resolved
+                          ? "ChatDesk's answer"
+                          : viewingTicket.status === "resolved"
+                            ? "Final answer"
+                            : "Earlier answer"}
                       </Text>
                       <FormattedAnswer text={viewingTicket.resolution} style={styles.modalSectionText} />
                     </>
@@ -536,7 +548,7 @@ export default function TicketsScreen() {
                     {viewingTicket.reopened_at ? (
                       <TimelineRow
                         styles={styles}
-                        label="Sent to staff"
+                        label="Moved to staff"
                         value={formatManila(viewingTicket.reopened_at)}
                       />
                     ) : null}

@@ -7,6 +7,7 @@ import {
 } from "../api/announcements.js";
 import AnnouncementFormModal from "../components/AnnouncementFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
 import { formatManilaDate } from "../utils/dates.js";
@@ -19,6 +20,7 @@ export default function AnnouncementManagement() {
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const [pendingDeleteAnnouncement, setPendingDeleteAnnouncement] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
 
   const loadAnnouncements = () => {
@@ -47,6 +49,9 @@ export default function AnnouncementManagement() {
       await deleteAnnouncement(pendingDeleteAnnouncement.announcement_id);
       setPendingDeleteAnnouncement(null);
       loadAnnouncements();
+    } catch (err) {
+      setPendingDeleteAnnouncement(null);
+      setToastMessage(err.response?.data?.message || "Could not delete this announcement. Please try again.");
     } finally {
       setIsDeleting(false);
     }
@@ -198,6 +203,7 @@ export default function AnnouncementManagement() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeleteAnnouncement(null)}
       />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage("")} />
     </section>
   );
 }

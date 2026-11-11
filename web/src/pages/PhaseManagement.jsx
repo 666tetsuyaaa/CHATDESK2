@@ -3,6 +3,7 @@ import { createPhase, deletePhase, extractPhasesFromPdf, getPhases, updatePhase 
 import PhaseFormModal from "../components/PhaseFormModal.jsx";
 import PhaseExtractReview from "../components/PhaseExtractReview.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
 
@@ -21,6 +22,7 @@ export default function PhaseManagement() {
   const [editingPhase, setEditingPhase] = useState(null);
   const [pendingDeletePhase, setPendingDeletePhase] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
   const [extractedCandidates, setExtractedCandidates] = useState(null);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -58,6 +60,9 @@ export default function PhaseManagement() {
       await deletePhase(pendingDeletePhase.phase_id);
       setPendingDeletePhase(null);
       loadPhases();
+    } catch (err) {
+      setPendingDeletePhase(null);
+      setToastMessage(err.response?.data?.message || "Could not delete this phase. Please try again.");
     } finally {
       setIsDeleting(false);
     }
@@ -271,6 +276,7 @@ export default function PhaseManagement() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeletePhase(null)}
       />
+      <Toast message={toastMessage} onDismiss={() => setToastMessage("")} />
     </section>
   );
 }

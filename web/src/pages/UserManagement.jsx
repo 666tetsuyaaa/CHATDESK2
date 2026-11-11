@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { createUser, deleteUser, getUsers, updateUser } from "../api/users.js";
 import { getOffices } from "../api/offices.js";
 import ScrollTable from "../components/ScrollTable.jsx";
@@ -34,6 +34,7 @@ export default function UserManagement() {
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const [activeCount, setActiveCount] = useState(0);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -44,11 +45,17 @@ export default function UserManagement() {
 
   const loadUsers = () => {
     setIsLoading(true);
-    getUsers({
-      page,
+    const filters = {
       search: debouncedSearch || undefined,
       role: roleFilter === "All" ? undefined : roleFilter,
+    };
+    // Sorted by the server, so A-Z / Z-A runs across every page, not just
+    // the 20 rows on screen.
+    getUsers({
+      ...filters,
+      page,
       status: statusFilter === "All" ? undefined : statusFilter,
+      sort: sortDirection === "desc" ? "desc" : undefined,
     })
       .then((res) => {
         setUsers(res.data.results ?? res.data);
@@ -56,6 +63,14 @@ export default function UserManagement() {
       })
       .catch(() => setError("Could not load users."))
       .finally(() => setIsLoading(false));
+    // Active users across all pages (same search and role), not just this page.
+    if (statusFilter === "inactive") {
+      setActiveCount(0);
+    } else {
+      getUsers({ ...filters, status: "active", page: 1 })
+        .then((res) => setActiveCount(res.data.count ?? (res.data.results ?? res.data).length))
+        .catch(() => {});
+    }
   };
 
   useEffect(() => {
@@ -66,12 +81,12 @@ export default function UserManagement() {
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, roleFilter, statusFilter]);
+  }, [debouncedSearch, roleFilter, statusFilter, sortDirection]);
 
   useEffect(() => {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, roleFilter, statusFilter]);
+  }, [page, debouncedSearch, roleFilter, statusFilter, sortDirection]);
 
   useEffect(() => {
     getOffices()
@@ -79,15 +94,7 @@ export default function UserManagement() {
       .catch(() => {});
   }, []);
 
-  const visibleUsers = useMemo(() => {
-    return [...users].sort((a, b) => {
-      const nameA = `${a.first_name} ${a.last_name}`.toLowerCase();
-      const nameB = `${b.first_name} ${b.last_name}`.toLowerCase();
-      return sortDirection === "asc" ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
-    });
-  }, [users, sortDirection]);
-
-  const activeCount = useMemo(() => users.filter((u) => u.is_active).length, [users]);
+  const visibleUsers = users;
 
   const handleConfirmDelete = async () => {
     if (!pendingDeleteUser) return;
@@ -97,6 +104,7 @@ export default function UserManagement() {
       setPendingDeleteUser(null);
       loadUsers();
     } catch (err) {
+      setPendingDeleteUser(null);
       setToastMessage(err.response?.data?.message || "Could not delete this user.");
     } finally {
       setIsDeleting(false);

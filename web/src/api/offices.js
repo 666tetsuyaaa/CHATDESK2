@@ -1,6 +1,7 @@
+import { getAllPages } from "./allPages.js";
 import axiosClient from "./axiosClient.js";
 
-export const getOffices = () => axiosClient.get("/offices/");
+export const getOffices = () => getAllPages("/offices/");
 
 export const createOffice = (payload) => axiosClient.post("/offices/", payload);
 

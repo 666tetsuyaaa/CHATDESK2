@@ -8,6 +8,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.base import ContentFile
 from PIL import Image, ImageOps
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.settings import api_settings as jwt_settings
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from offices.models import Office
@@ -275,10 +278,22 @@ class UserAdminUpdateSerializer(PersonNameMixin, serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"office": "An office must be assigned for the Office Admin role."}
                 )
-        elif "role" in attrs:
-            # Switching away from Office Admin - clear the now-meaningless office.
+        else:
+            # Only Office Admins belong to an office - a student or Super
+            # Admin never keeps one (whether or not the role changed here).
             attrs["office"] = None
         return attrs
+
+    def update(self, instance, validated_data):
+        if "role" in validated_data:
+            # Django's own /admin panel goes by is_staff/is_superuser, not by
+            # role. Keep them in step so a demoted Super Admin loses /admin
+            # access, and a promoted one gets the same access as one created
+            # directly (UserCreateSerializer).
+            is_superadmin = validated_data["role"] == User.Role.SUPERADMIN
+            validated_data["is_staff"] = is_superadmin
+            validated_data["is_superuser"] = is_superadmin
+        return super().update(instance, validated_data)
 
 
 class UserCreateSerializer(PersonNameMixin, serializers.ModelSerializer):
@@ -328,3 +343,16 @@ class UserCreateSerializer(PersonNameMixin, serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         return user
+
+
+class ActiveUserTokenRefreshSerializer(TokenRefreshSerializer):
+    """POST /api/v1/auth/token/refresh/ - the library's refresh, plus a check
+    that the account is still active. Without it a deactivated user kept
+    getting fresh tokens that every other endpoint then refused, so the apps
+    showed errors instead of logging them out."""
+
+    def validate(self, attrs):
+        user_id = RefreshToken(attrs["refresh"]).payload.get(jwt_settings.USER_ID_CLAIM)
+        if not User.objects.filter(user_id=user_id, is_active=True).exists():
+            raise AuthenticationFailed("This account has been deactivated.", code="user_inactive")
+        return super().validate(attrs)

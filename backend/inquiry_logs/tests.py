@@ -8,7 +8,7 @@ from offices.models import Office
 from tickets.models import Ticket
 from users.models import User
 
-from . import services
+from . import matching, services
 from .models import ESCALATED_INTENT, InquiryLog
 
 ASK = "/api/v1/chat/ask/"
@@ -174,6 +174,7 @@ SCHOLAR_VEC = [0.0, 1.0, 0.0]
 class SmartMatchingTests(BaseAPITestCase):
     def setUp(self):
         super().setUp()
+        matching.clear_cache()
         self.client = self.client_for(self.make_user("student@example.com"))
         self.enroll = Faq.objects.create(
             intent_keyword="enrollment_process", question_text="What's the process of enrollment?",

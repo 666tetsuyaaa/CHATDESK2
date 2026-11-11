@@ -1,15 +1,22 @@
 import os
 import shutil
 import tempfile
-from io import BytesIO
+from datetime import timedelta
+from io import BytesIO, StringIO
 from smtplib import SMTPException
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import override_settings
+from django.utils import timezone
 from PIL import Image
 
+from announcements.models import Announcement
 from config.testing import PASSWORD, BaseAPITestCase
+from faqs.models import Faq
+from offices.models import Office
+from tickets.models import Ticket
 
 from .models import PasswordResetCode, User
 
@@ -283,3 +290,210 @@ class InputValidationTests(BaseAPITestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("password", response.data["details"])
+
+
+class BugFixTests(BaseAPITestCase):
+    """Regression tests for the November 2026 bug review."""
+
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.superadmin = self.make_user("super@example.com", User.Role.SUPERADMIN, is_staff=True, is_superuser=True)
+        self.admin = self.client_for(self.superadmin)
+
+    def test_demoting_a_super_admin_removes_django_admin_access(self):
+        other = self.make_user("other.super@example.com", User.Role.SUPERADMIN, is_staff=True, is_superuser=True)
+        response = self.admin.patch(f"/api/v1/users/{other.user_id}/", {"role": "student", "course": "BSIT"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        other.refresh_from_db()
+        self.assertFalse(other.is_staff)
+        self.assertFalse(other.is_superuser)
+
+    def test_promoting_to_super_admin_matches_a_created_one(self):
+        student = self.make_user("student@example.com")
+        self.admin.patch(f"/api/v1/users/{student.user_id}/", {"role": "superadmin"}, format="json")
+        student.refresh_from_db()
+        self.assertTrue(student.is_staff)
+        self.assertTrue(student.is_superuser)
+
+    def test_editing_a_name_keeps_the_flags(self):
+        other = self.make_user("other.super@example.com", User.Role.SUPERADMIN, is_staff=True, is_superuser=True)
+        self.admin.patch(f"/api/v1/users/{other.user_id}/", {"first_name": "Renamed"}, format="json")
+        other.refresh_from_db()
+        self.assertTrue(other.is_superuser)
+
+    def test_bad_filter_values_return_400_not_500(self):
+        student = self.client_for(self.make_user("student@example.com"))
+        for client, url in [
+            (self.admin, "/api/v1/faqs/?office=abc"),
+            (student, "/api/v1/faqs/popular/?office=abc"),
+            (self.admin, "/api/v1/tickets/?office=abc"),
+            (self.admin, "/api/v1/inquiry-logs/?office=abc"),
+            (self.admin, "/api/v1/inquiry-logs/?user_id=abc"),
+            (self.admin, "/api/v1/inquiry-logs/unanswered/?office=abc"),
+            (self.admin, "/api/v1/analytics/overview/?office=abc"),
+            (self.admin, "/api/v1/analytics/overview/?date_from=abc"),
+            (self.admin, "/api/v1/inquiry-logs/?date_from=2026-13-45"),
+        ]:
+            self.assertEqual(client.get(url).status_code, 400, url)
+        # Valid values still work.
+        self.assertEqual(self.admin.get(f"/api/v1/tickets/?office={self.office.office_id}").status_code, 200)
+        self.assertEqual(self.admin.get("/api/v1/tickets/?office=unassigned").status_code, 200)
+        self.assertEqual(self.admin.get("/api/v1/analytics/overview/?date_from=2026-11-01").status_code, 200)
+
+    def test_deactivated_user_cannot_refresh_their_login(self):
+        self.make_user("student@example.com")
+        tokens = self.client.post("/api/v1/auth/login/", {"email": "student@example.com", "password": PASSWORD}, format="json").data
+        self.assertEqual(self.client.post("/api/v1/auth/token/refresh/", {"refresh": tokens["refresh"]}, format="json").status_code, 200)
+        User.objects.filter(email="student@example.com").update(is_active=False)
+        latest = tokens["refresh"]
+        response = self.client.post("/api/v1/auth/token/refresh/", {"refresh": latest}, format="json")
+        self.assertEqual(response.status_code, 401)
+
+    def test_student_with_history_cannot_be_deleted(self):
+        student = self.make_user("student@example.com")
+        Ticket.objects.create(user=student, subject_category="x", issue_description="x")
+        response = self.admin.delete(f"/api/v1/users/{student.user_id}/")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Deactivate", response.data["message"])
+        self.assertTrue(User.objects.filter(pk=student.pk).exists())
+
+        fresh = self.make_user("fresh@example.com")
+        self.assertEqual(self.admin.delete(f"/api/v1/users/{fresh.user_id}/").status_code, 204)
+
+    def test_faq_keyword_cannot_be_a_system_intent(self):
+        response = self.admin.post("/api/v1/faqs/", {
+            "intent_keyword": "unresolved_complex_query", "question_text": "Reserved keyword test?",
+            "answer_content": "This answer is long enough for the test.", "category": "General",
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("intent_keyword", response.data["details"])
+
+
+class SecondBugReviewTests(BaseAPITestCase):
+    """Regression tests for the second November 2026 bug review."""
+
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.superadmin = self.make_user("super@example.com", User.Role.SUPERADMIN, is_staff=True, is_superuser=True)
+        self.admin = self.client_for(self.superadmin)
+        self.student = self.make_user("student@example.com")
+
+    def test_admin_with_announcements_cannot_be_deleted(self):
+        other = self.make_user("other.super@example.com", User.Role.SUPERADMIN)
+        announcement = Announcement.objects.create(title="Hi", content="Welcome back!", created_by=other)
+        response = self.admin.delete(f"/api/v1/users/{other.user_id}/")
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Announcement.objects.filter(pk=announcement.pk).exists())
+
+    def test_unicode_digits_in_a_filter_return_400(self):
+        self.assertEqual(self.admin.get("/api/v1/tickets/", {"office": "²"}).status_code, 400)
+
+    def test_staff_message_on_a_chatbot_answer_opens_it_for_staff(self):
+        ticket = Ticket.objects.create(
+            user=self.student, subject_category="General", issue_description="x", office=self.office,
+            status=Ticket.Status.RESOLVED, resolution="The FAQ answer.", resolved_at=timezone.now(),
+            is_ai_resolved=True,
+        )
+        response = self.admin.post(f"/api/v1/tickets/{ticket.ticket_id}/messages/", {"body": "More details?"}, format="json")
+        self.assertEqual(response.status_code, 201)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.ACTIVE)
+        self.assertFalse(ticket.is_ai_resolved)
+        self.assertIsNone(ticket.resolved_at)
+        self.assertIsNone(ticket.resolution)
+        self.assertIsNotNone(ticket.reopened_at)
+        self.assertIn("ChatDesk answered: The FAQ answer.", ticket.conversation_context)
+
+    def test_reopening_a_ticket_clears_its_resolved_date(self):
+        ticket = Ticket.objects.create(user=self.student, subject_category="General", issue_description="x")
+        url = f"/api/v1/tickets/{ticket.ticket_id}/"
+        self.admin.patch(url, {"status": "resolved", "resolution": "Here is the answer."}, format="json")
+        self.admin.patch(url, {"status": "pending"}, format="json")
+        ticket.refresh_from_db()
+        self.assertIsNone(ticket.resolved_at)
+        self.assertIsNone(ticket.resolved_by)
+
+    def test_overdue_ticket_in_an_office_without_admins_reaches_super_admins(self):
+        lonely = Office.objects.create(name="Office With No Admin", code="NOADM")
+        ticket = Ticket.objects.create(user=self.student, subject_category="General", issue_description="x", office=lonely)
+        Ticket.objects.filter(pk=ticket.pk).update(waiting_since=timezone.now() - timedelta(days=10))
+        out = StringIO()
+        call_command("send_overdue_reminders", "--dry-run", stdout=out)
+        self.assertIn("To: super@example.com", out.getvalue())
+        self.assertIn(ticket.ticket_code, out.getvalue())
+        self.assertIn("no active Office Admin", out.getvalue())
+
+    def test_faq_keyword_must_be_unique_ignoring_case(self):
+        Faq.objects.create(intent_keyword="enrollment_steps", question_text="How do I enroll?",
+                           answer_content="Follow the enrollment steps.", category="Enrollment")
+        response = self.admin.post("/api/v1/faqs/", {
+            "intent_keyword": "Enrollment_Steps", "question_text": "How to enroll?",
+            "answer_content": "This answer is long enough for the test.", "category": "Enrollment",
+        }, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("intent_keyword", response.data["details"])
+
+
+class ThirdBugReviewTests(BaseAPITestCase):
+    """Regression tests for the third November 2026 bug review."""
+
+    def setUp(self):
+        super().setUp()
+        self.superadmin = self.make_user("super@example.com", User.Role.SUPERADMIN)
+        self.admin = self.client_for(self.superadmin)
+
+    def test_user_list_sorts_z_to_a_on_the_server(self):
+        for first in ("Ana", "Zed", "Mia"):
+            User.objects.create_user(email=f"{first.lower()}@example.com", password=PASSWORD,
+                                     first_name=first, last_name="User")
+        names = [u["first_name"] for u in self.admin.get("/api/v1/users/", {"sort": "desc"}).data["results"]]
+        self.assertEqual(names[:3], ["Zed", "Test", "Mia"])
+        names = [u["first_name"] for u in self.admin.get("/api/v1/users/").data["results"]]
+        self.assertEqual(names[0], "Ana")
+
+    def test_faq_list_filters_unassigned(self):
+        office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        body = {"answer_content": "An answer long enough.", "category": "General"}
+        Faq.objects.create(intent_keyword="general_one", question_text="General?", **body)
+        Faq.objects.create(intent_keyword="office_one", question_text="Office?", office=office, **body)
+        rows = self.admin.get("/api/v1/faqs/", {"office": "unassigned"}).data["results"]
+        self.assertEqual([r["intent_keyword"] for r in rows], ["general_one"])
+
+
+class FourthBugReviewTests(BaseAPITestCase):
+    """Regression tests for the fourth (end-to-end) November 2026 bug review."""
+
+    def setUp(self):
+        super().setUp()
+        self.office = Office.objects.create(name="Test Student Affairs", code="TSA")
+        self.student = self.make_user("student@example.com")
+        self.staff = self.client_for(self.make_user("super@example.com", User.Role.SUPERADMIN))
+
+    def ai_ticket(self):
+        return Ticket.objects.create(
+            user=self.student, subject_category="General", issue_description="x", office=self.office,
+            status=Ticket.Status.RESOLVED, resolution="Bring your ID.\nThen sign the form.",
+            resolved_at=timezone.now(), is_ai_resolved=True,
+        )
+
+    def test_chatbot_answer_stays_visible_after_staff_message(self):
+        ticket = self.ai_ticket()
+        self.assertIsNone(self.client_for(self.student).get(f"/api/v1/tickets/{ticket.ticket_id}/").data["chatbot_answer"])
+        self.staff.post(f"/api/v1/tickets/{ticket.ticket_id}/messages/", {"body": "Anything else?"}, format="json")
+        data = self.client_for(self.student).get(f"/api/v1/tickets/{ticket.ticket_id}/").data
+        self.assertEqual(data["chatbot_answer"], "Bring your ID.\nThen sign the form.")
+        self.assertIsNone(data["resolution"])
+
+    def test_chatbot_answer_stays_visible_after_follow_up(self):
+        ticket = self.ai_ticket()
+        response = self.client_for(self.student).post(f"/api/v1/tickets/{ticket.ticket_id}/follow-up/", {}, format="json")
+        self.assertEqual(response.data["chatbot_answer"], "Bring your ID.\nThen sign the form.")
+
+    def test_campus_sized_sign_up_and_login_limits(self):
+        from django.conf import settings
+        rates = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+        self.assertGreaterEqual(int(rates["register"].split("/")[0]), 100)
+        self.assertGreaterEqual(int(rates["login"].split("/")[0]), 100)
+        self.assertEqual(rates["login_email"], "10/min")

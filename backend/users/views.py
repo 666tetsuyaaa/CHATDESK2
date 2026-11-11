@@ -14,11 +14,13 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshView
 
 from .colleges import college_list
 from .models import PasswordResetCode, User
 from .permissions import IsAdmin
 from .serializers import (
+    ActiveUserTokenRefreshSerializer,
     LoginSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
@@ -91,6 +93,12 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class TokenRefreshView(BaseTokenRefreshView):
+    """POST /api/v1/auth/token/refresh/ - refuses deactivated accounts (401)."""
+
+    serializer_class = ActiveUserTokenRefreshSerializer
 
 
 class LogoutView(APIView):
@@ -258,7 +266,7 @@ class VerificationResendView(APIView):
     permission_classes = [permissions.AllowAny]
     throttle_classes = [ScopedRateThrottle, EmailRateThrottle]
     throttle_scope = "verify_email_resend"
-    email_throttle_scope = "verify_email_resend"
+    email_throttle_scope = "verify_email_resend_email"
 
     def post(self, request):
         serializer = VerificationResendSerializer(data=request.data)
@@ -359,7 +367,7 @@ class UserListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/v1/users/ - admin only. User Management screen.
          ?search= matches first/last name or email. ?role=student|admin.
-         ?status=active|inactive.
+         ?status=active|inactive. ?sort=desc for Z-A by name (default A-Z).
     POST /api/v1/users/ - admin only. Creates a student or admin account
          directly (unlike /auth/register/, the admin picks the role).
     """
@@ -367,7 +375,10 @@ class UserListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAdmin]
 
     def get_queryset(self):
-        qs = User.objects.all().order_by("first_name", "last_name")
+        if self.request.query_params.get("sort") == "desc":
+            qs = User.objects.order_by("-first_name", "-last_name", "-user_id")
+        else:
+            qs = User.objects.order_by("first_name", "last_name", "user_id")
         search = self.request.query_params.get("search")
         role = self.request.query_params.get("role")
         status_param = self.request.query_params.get("status")
@@ -423,7 +434,38 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
                 raise PermissionDenied("You can't change your own role.")
         serializer.save()
 
-    def perform_destroy(self, instance):
-        if instance.pk == self.request.user.pk:
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.pk == request.user.pk:
             raise PermissionDenied("You can't delete your own account.")
+        # A student's tickets and chat logs would be deleted with the account,
+        # changing past analytics and losing staff answers - deactivating
+        # keeps the history and still blocks the login.
+        if instance.tickets.exists() or instance.inquiry_logs.exists():
+            return Response(
+                {
+                    "error": "validation_error",
+                    "message": (
+                        "This account has chat history or tickets, so it can't be deleted. "
+                        "Deactivate it instead - that blocks the login and keeps the records."
+                    ),
+                    "details": {},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Announcements are deleted with their author's account, so students
+        # would silently lose them.
+        if instance.announcements.exists():
+            return Response(
+                {
+                    "error": "validation_error",
+                    "message": (
+                        "This account has posted announcements, so it can't be deleted. "
+                        "Deactivate it instead - that blocks the login and keeps the announcements."
+                    ),
+                    "details": {},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

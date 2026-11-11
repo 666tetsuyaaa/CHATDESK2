@@ -72,19 +72,28 @@ axiosClient.interceptors.response.use(
 
       isRefreshing = true;
       try {
-        const { data } = await axios.post(`${BASE_URL}/auth/token/refresh/`, {
-          refresh: refreshToken,
-        });
+        const { data } = await axios.post(
+          `${BASE_URL}/auth/token/refresh/`,
+          { refresh: refreshToken },
+          { timeout: 15000 }
+        );
         // The backend rotates refresh tokens and blacklists the old one, so
         // the new one must be kept or the next refresh fails (~30 min logout).
         await saveTokens(data.access, data.refresh ?? refreshToken);
         resolvePendingRequests(data.access);
         originalRequest.headers.Authorization = `Bearer ${data.access}`;
         return axiosClient(originalRequest);
-      } catch (refreshError) {
-        await clearTokens();
+      } catch (refreshError: any) {
+        // Log out only when the server refused the refresh token (expired,
+        // revoked, or the account was deactivated). A dropped connection,
+        // timeout or server restart just fails this request - the student
+        // stays logged in and the next request tries again.
+        const status = refreshError?.response?.status;
+        if (status === 401 || status === 400) {
+          await clearTokens();
+          sessionExpiredListener?.();
+        }
         rejectPendingRequests(refreshError);
-        sessionExpiredListener?.();
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

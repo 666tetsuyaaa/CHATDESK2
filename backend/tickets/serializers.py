@@ -17,6 +17,7 @@ class TicketSerializer(serializers.ModelSerializer):
     log_id = serializers.PrimaryKeyRelatedField(source="log", read_only=True)
     office_name = serializers.CharField(source="office.name", read_only=True, default=None)
     is_overdue = serializers.BooleanField(read_only=True)
+    chatbot_answer = serializers.CharField(read_only=True, allow_null=True)
     # Filled by annotate_message_info() on list/detail querysets.
     message_count = serializers.SerializerMethodField()
     last_staff_message_at = serializers.SerializerMethodField()
@@ -28,7 +29,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "resolved_by", "log_id", "title", "subject_category",
             "office", "office_name", "issue_description", "conversation_context", "status", "resolution",
             "is_ai_resolved", "created_at", "reopened_at", "resolved_at",
-            "waiting_since", "is_overdue", "message_count", "last_staff_message_at",
+            "waiting_since", "is_overdue", "message_count", "last_staff_message_at", "chatbot_answer",
         ]
         read_only_fields = [
             "ticket_id", "ticket_code", "user_id", "log_id", "resolved_by", "office_name",

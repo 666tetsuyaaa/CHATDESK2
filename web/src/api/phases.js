@@ -1,6 +1,7 @@
+import { getAllPages } from "./allPages.js";
 import axiosClient from "./axiosClient.js";
 
-export const getPhases = () => axiosClient.get("/phases/");
+export const getPhases = () => getAllPages("/phases/");
 
 export const createPhase = (payload) => axiosClient.post("/phases/", payload);
 

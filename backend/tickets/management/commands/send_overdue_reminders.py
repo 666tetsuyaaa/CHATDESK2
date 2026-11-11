@@ -1,5 +1,6 @@
 """Emails each office admin a list of their office's overdue tickets, and
-each Super Admin the overdue tickets that have no office yet.
+each Super Admin the overdue tickets that have no office yet or whose
+office has no active Office Admin.
 
 Run once a day from the host's scheduler, for example a cron line:
     0 8 * * * cd /path/to/backend && python manage.py send_overdue_reminders
@@ -33,14 +34,22 @@ class Command(BaseCommand):
             by_office.setdefault(ticket.office_id, []).append(ticket)
 
         admins = User.objects.filter(is_active=True).select_related("office")
+        super_admins = list(admins.filter(role=User.Role.SUPERADMIN))
         jobs = []
         for office_id, tickets in by_office.items():
             if office_id is None:
-                for admin in admins.filter(role=User.Role.SUPERADMIN):
+                for admin in super_admins:
                     jobs.append((admin, tickets, "no office assigned yet"))
-            else:
-                for admin in admins.filter(role=User.Role.OFFICE_ADMIN, office_id=office_id):
-                    jobs.append((admin, tickets, admin.office.name))
+                continue
+            office_admins = list(admins.filter(role=User.Role.OFFICE_ADMIN, office_id=office_id))
+            for admin in office_admins:
+                jobs.append((admin, tickets, admin.office.name))
+            if not office_admins:
+                # Nobody at that office would hear about these - tell the
+                # Super Admins instead, so they can reroute or add an admin.
+                place = f"{tickets[0].office.name}, which has no active Office Admin"
+                for admin in super_admins:
+                    jobs.append((admin, tickets, place))
 
         sent = failed = 0
         for admin, tickets, place in jobs:

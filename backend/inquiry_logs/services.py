@@ -291,7 +291,8 @@ def classify_message(message: str, office=None, history=None, user=None) -> dict
 
     open_tickets = _open_tickets_for(user)
 
-    candidate_faqs = Faq.objects.all()
+    # Embeddings (about 30 KB each) are read only by smart matching, from its cache.
+    candidate_faqs = Faq.objects.defer("embedding", "embedding_text")
     if office is not None:
         candidate_faqs = candidate_faqs.filter(models.Q(office=office) | models.Q(office__isnull=True))
     faqs_by_keyword = {faq.intent_keyword: faq for faq in candidate_faqs}

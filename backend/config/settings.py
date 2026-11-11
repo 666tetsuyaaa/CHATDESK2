@@ -127,16 +127,18 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     # Applied per view via throttle_scope / users/throttles.py. Per-IP limits
-    # stay loose since a whole campus Wi-Fi can share one public IP; the
+    # stay loose since a whole campus Wi-Fi can share one public IP (a class
+    # signing up together for SUS testing must not be blocked); the
     # per-email and per-student limits are the strict ones.
     "DEFAULT_THROTTLE_RATES": {
-        "login": "20/min",
+        "login": "100/min",
         "login_email": "10/min",
-        "register": "10/hour",
-        "password_reset_request": "20/hour",
+        "register": "100/hour",
+        "password_reset_request": "60/hour",
         "password_reset_request_email": "5/hour",
-        "password_reset_confirm": "30/hour",
-        "verify_email_resend": "5/hour",
+        "password_reset_confirm": "100/hour",
+        "verify_email_resend": "60/hour",
+        "verify_email_resend_email": "5/hour",
         "chat": "20/min",
         "ticket_messages": "10/min",
     },

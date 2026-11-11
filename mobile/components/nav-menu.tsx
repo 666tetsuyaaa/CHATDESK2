@@ -63,9 +63,12 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const translateX = useSharedValue(-panelWidth);
 
+  // Mount as soon as the menu is asked to open (during render, not in the
+  // effect below); it unmounts after the closing slide finishes.
+  if (visible && !isMounted) setIsMounted(true);
+
   useEffect(() => {
     if (visible) {
-      setIsMounted(true);
       translateX.value = withTiming(0, {
         duration: ANIMATION_DURATION,
         easing: Easing.out(Easing.cubic),

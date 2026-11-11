@@ -7,10 +7,18 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from config.query_params import office_param
 from users.colleges import filter_by_college
 from users.permissions import IsOfficeStaff, IsStudent
 
-from .models import Ticket, TicketMessage, overdue_filter
+from .models import (
+    CHATBOT_ANSWER_PREFIX,
+    FOLLOW_UP_NOTE,
+    STAFF_STEPPED_IN_NOTE,
+    Ticket,
+    TicketMessage,
+    overdue_filter,
+)
 from .notifications import notify_staff_message, notify_ticket_answered
 from .serializers import (
     TicketCreateSerializer,
@@ -62,8 +70,8 @@ def apply_ticket_filters(qs, params, allow_office_filter):
     elif source == "ai":
         qs = qs.filter(is_ai_resolved=True)
     qs = filter_by_college(qs, params.get("college"))
-    office = params.get("office")
-    if allow_office_filter and office:
+    office = office_param(params) if allow_office_filter else None
+    if office:
         qs = qs.filter(office__isnull=True) if office == UNASSIGNED else qs.filter(office_id=office)
     if params.get("overdue") in ("true", "1"):
         qs = qs.filter(overdue_filter())
@@ -164,9 +172,15 @@ class TicketDetailView(generics.RetrieveUpdateAPIView):
             if ticket.resolved_by_id is None:
                 extra["resolved_by"] = self.request.user
             extra["resolved_at"] = timezone.now()
-        elif new_status == Ticket.Status.PENDING and ticket.status != Ticket.Status.PENDING:
-            # Back in the staff queue: the overdue clock starts again.
-            extra["waiting_since"] = timezone.now()
+        else:
+            if new_status and ticket.status == Ticket.Status.RESOLVED:
+                # Reopened: no longer resolved, and whoever answers it next
+                # is recorded as the resolver.
+                extra["resolved_at"] = None
+                extra["resolved_by"] = None
+            if new_status == Ticket.Status.PENDING and ticket.status != Ticket.Status.PENDING:
+                # Back in the staff queue: the overdue clock starts again.
+                extra["waiting_since"] = timezone.now()
         updated = serializer.save(**extra)
         if newly_answered:
             notify_ticket_answered(updated)
@@ -204,8 +218,8 @@ class TicketFollowUpView(APIView):
                     status=http_status.HTTP_400_BAD_REQUEST,
                 )
             context_lines = [ticket.conversation_context] if ticket.conversation_context else []
-            context_lines.append(f"ChatDesk answered: {ticket.resolution or ''}")
-            context_lines.append("Student asked for staff follow-up.")
+            context_lines.append(f"{CHATBOT_ANSWER_PREFIX}{ticket.resolution or ''}")
+            context_lines.append(FOLLOW_UP_NOTE)
             if message:
                 context_lines.append(f"Student: {message}")
             ticket.conversation_context = "\n".join(context_lines)
@@ -221,13 +235,31 @@ class TicketFollowUpView(APIView):
         return Response(TicketSerializer(ticket).data, status=http_status.HTTP_200_OK)
 
 
+def take_over_ai_ticket(ticket):
+    """Staff messaged the student on a chatbot-answered ticket: it becomes a
+    staff ticket that is open ("active", waiting on the student), not one
+    staff resolved instantly. Same as a follow-up request: the chatbot's
+    answer moves into the conversation and staff time starts now."""
+    context_lines = [ticket.conversation_context] if ticket.conversation_context else []
+    context_lines.append(f"{CHATBOT_ANSWER_PREFIX}{ticket.resolution or ''}")
+    context_lines.append(STAFF_STEPPED_IN_NOTE)
+    ticket.conversation_context = "\n".join(context_lines)
+    ticket.is_ai_resolved = False
+    ticket.status = Ticket.Status.ACTIVE
+    ticket.resolution = None
+    ticket.resolved_at = None
+    ticket.resolved_by = None
+    ticket.reopened_at = timezone.now()
+    ticket.save()
+
+
 class TicketMessageListCreateView(APIView):
     """
     GET  /api/v1/tickets/{ticket_id}/messages/ - the ticket's conversation,
          oldest first. Same access as the ticket itself.
     POST /api/v1/tickets/{ticket_id}/messages/ - {"body": "..."}.
-         Staff message: a pending ticket becomes "active" (waiting on the
-         student) and the student is emailed. Student message: the ticket
+         Staff message: a pending or chatbot-answered ticket becomes
+         "active" (waiting on the student) and the student is emailed. Student message: the ticket
          goes back to "pending" for staff, reopening it if it was resolved.
          Students can't message a chatbot-answered ticket; they use
          follow-up first.
@@ -276,17 +308,14 @@ class TicketMessageListCreateView(APIView):
                     ticket.status = Ticket.Status.PENDING
                     ticket.waiting_since = timezone.now()
                     ticket.resolved_at = None
-                    ticket.save(update_fields=["status", "waiting_since", "resolved_at"])
+                    ticket.resolved_by = None
+                    ticket.save(update_fields=["status", "waiting_since", "resolved_at", "resolved_by"])
             else:
-                fields = []
                 if ticket.is_ai_resolved:
-                    ticket.is_ai_resolved = False  # staff stepped in - theirs now
-                    fields.append("is_ai_resolved")
-                if ticket.status == Ticket.Status.PENDING:
+                    take_over_ai_ticket(ticket)
+                elif ticket.status == Ticket.Status.PENDING:
                     ticket.status = Ticket.Status.ACTIVE
-                    fields.append("status")
-                if fields:
-                    ticket.save(update_fields=fields)
+                    ticket.save(update_fields=["status"])
                 notify_staff_message(ticket, message)
 
         data = TicketMessageSerializer(message, context={"viewer": user}).data

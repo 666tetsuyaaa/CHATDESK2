@@ -2,6 +2,7 @@ from django.db.models import Count, Q
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.query_params import date_param, office_param
 from inquiry_logs.models import DUPLICATE_TICKET_INTENT, NON_INQUIRY_INTENTS, InquiryLog
 from offices.models import Office
 from tickets.models import Ticket, overdue_cutoff, overdue_filter
@@ -110,7 +111,7 @@ class AnalyticsOverviewView(APIView):
             offices = offices.filter(pk=user.office_id)
             include_unassigned = False
         else:
-            office = params.get("office")
+            office = office_param(params)
             if office == UNASSIGNED:
                 logs = logs.filter(office__isnull=True).filter(Q(ticket__isnull=True) | Q(ticket__office__isnull=True))
                 tickets = tickets.filter(office__isnull=True)
@@ -125,8 +126,8 @@ class AnalyticsOverviewView(APIView):
         logs = filter_by_college(logs, college)
         tickets = filter_by_college(tickets, college)
 
-        date_from = params.get("date_from")
-        date_to = params.get("date_to")
+        date_from = date_param(params, "date_from")
+        date_to = date_param(params, "date_to")
         if date_from:
             logs = logs.filter(timestamp__date__gte=date_from)
             tickets = tickets.filter(created_at__date__gte=date_from)
