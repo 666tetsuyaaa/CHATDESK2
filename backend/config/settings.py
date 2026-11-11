@@ -9,6 +9,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
+import dj_database_url
 from decouple import Csv, config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -68,16 +69,40 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB_NAME"),
-        "USER": config("DB_USER"),
-        "PASSWORD": config("DB_PASSWORD"),
-        "HOST": config("DB_HOST", default="localhost"),
-        "PORT": config("DB_PORT", default="5432"),
+def _database_from_url(url):
+    """A DATABASES entry from a postgres:// URL (Neon in production).
+    Neon's pooled address ("-pooler") runs PgBouncer in transaction mode,
+    which can't keep Django's server-side cursors open between queries."""
+    database = dj_database_url.parse(url, conn_max_age=0, conn_health_checks=True)
+    # Give up on a stuck connection instead of hanging the request.
+    database.setdefault("OPTIONS", {})["connect_timeout"] = 10
+    if "-pooler" in url:
+        database["DISABLE_SERVER_SIDE_CURSORS"] = True
+    return database
+
+
+# Production: DATABASE_URL (Neon's pooled connection string). Local
+# development: the separate DB_* settings in backend/.env.
+DATABASE_URL = config("DATABASE_URL", default="")
+if DATABASE_URL:
+    DATABASES = {"default": _database_from_url(DATABASE_URL)}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("DB_HOST", default="localhost"),
+            "PORT": config("DB_PORT", default="5432"),
+        }
     }
-}
+
+# Only for `manage.py copy_reference_data`: the database to copy offices,
+# FAQs, phases, announcements and staff accounts FROM (your local one).
+SOURCE_DATABASE_URL = config("SOURCE_DATABASE_URL", default="")
+if SOURCE_DATABASE_URL:
+    DATABASES["source"] = _database_from_url(SOURCE_DATABASE_URL)
 
 # `manage.py test` needs to create a throwaway database, which the shared
 # local Postgres user (chatdesk_user) isn't allowed to do - so tests run on
@@ -106,13 +131,38 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+# `manage.py collectstatic` gathers the Django admin's CSS/JS here; nginx
+# serves it in production (deploy/aws/nginx-chatdesk.conf).
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Profile picture uploads (users.User.profile_picture). Served directly by
-# Django in dev via config/urls.py's static() helper - a real deployment
-# would front this with nginx/S3 instead.
+# Profile picture uploads (users.User.profile_picture). Served by Django in
+# dev via config/urls.py's static() helper, and by nginx in production from
+# this same folder - the server's disk keeps it between deployments.
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Production behind nginx: nginx handles HTTPS and passes the request on to
+# gunicorn over plain HTTP, saying in this header that the visitor used
+# HTTPS (deploy/aws/nginx-chatdesk.conf). Django needs it to treat the
+# request as secure (correct https:// links, admin login CSRF check). Safe
+# because nginx always sets the header itself.
+CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
+PROXY_SSL_HEADER = config("PROXY_SSL_HEADER", default="")
+if PROXY_SSL_HEADER:
+    SECURE_PROXY_SSL_HEADER = (PROXY_SSL_HEADER, "https")
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+# Errors and warnings to the console (gunicorn -> journalctl in production).
+# Without this, Django only prints errors while DEBUG is on.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "WARNING"},
+}
 
 # Route-protection: every endpoint requires a valid JWT unless a view explicitly
 # sets permission_classes = [AllowAny] (register/login only).

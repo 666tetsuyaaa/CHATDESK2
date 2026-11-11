@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "ChatDesk",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -21,7 +21,10 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "ChatDesk",
+      "shortName": "ChatDesk",
+      "themeColor": "#122254"
     },
     "plugins": [
       "expo-router",

@@ -1,0 +1,5 @@
+# Server files run on Linux: always keep Unix line endings, even when they
+# are edited on Windows (a Windows line ending breaks bash scripts and
+# systemd units).
+*.sh text eol=lf
+deploy/** text eol=lf

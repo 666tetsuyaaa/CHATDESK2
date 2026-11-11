@@ -1,0 +1,8 @@
+# Secrets (database connection strings, API keys) - never commit these.
+# Each app folder has its own .gitignore too; this covers files created at
+# the repo root, such as the .env written by `neon init`.
+.env
+.env.*
+!.env.example
+.neon
+node_modules/

@@ -1,0 +1,25 @@
+# systemd service that keeps the Django API running (and restarts it after
+# a crash or a reboot). Installed by deploy/aws/setup_server.sh as
+# /etc/systemd/system/chatdesk.service.
+# Logs: sudo journalctl -u chatdesk -f
+
+[Unit]
+Description=ChatDesk Django API (gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/srv/chatdesk/backend
+# Settings come from /srv/chatdesk/backend/.env (read by python-decouple).
+# 2 workers fit the 1 GB t3.micro. The timeout covers a slow OpenAI reply
+# (up to ~30 s) and the calendar PDF import (up to ~3 min).
+ExecStart=/srv/chatdesk/backend/venv/bin/gunicorn config.wsgi:application \
+    --bind 127.0.0.1:8000 --workers 2 --timeout 180 \
+    --access-logfile - --error-logfile -
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
