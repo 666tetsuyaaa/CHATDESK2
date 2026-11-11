@@ -48,8 +48,7 @@ faculty evaluation, faculty leave, promotional list submission, BOR resolutions)
 - Anything that isn't a real dated period on the calendar - never invent one
 
 For each extracted period, write a short, natural guidance_message (1-2 sentences) a \
-chatbot could show a student during that window, and 2-3 suggested_questions a student \
-might realistically tap to ask about it. Use the calendar's own official label as the \
+chatbot could show a student during that window. Use the calendar's own official label as the \
 name, cleaned up (no trailing "(Undergraduate Levels)" type qualifiers unless needed to \
 disambiguate UG from Graduate versions of the same period - if both exist with different \
 dates, keep them as separate entries with distinguishing names).
@@ -74,15 +73,8 @@ RESPONSE_SCHEMA = {
                             "start_date": {"type": "string"},
                             "end_date": {"type": "string"},
                             "guidance_message": {"type": "string"},
-                            "suggested_questions": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
                         },
-                        "required": [
-                            "name", "start_date", "end_date",
-                            "guidance_message", "suggested_questions",
-                        ],
+                        "required": ["name", "start_date", "end_date", "guidance_message"],
                         "additionalProperties": False,
                     },
                 }

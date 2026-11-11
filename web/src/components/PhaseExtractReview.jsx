@@ -46,7 +46,6 @@ export default function PhaseExtractReview({ candidates, onDone }) {
           start_date: row.start_date,
           end_date: row.end_date,
           guidance_message: row.guidance_message,
-          suggested_questions: row.suggested_questions,
         });
         setRows((prev) =>
           prev.map((r) => (r._id === row._id ? { ...r, _status: "saved", _error: null } : r))

@@ -2,20 +2,10 @@ import { useState } from "react";
 import FieldError, { invalidInput } from "./FieldError.jsx";
 import { LIMITS, hasErrors, maxLength, requiredText, serverErrors } from "../utils/validation.js";
 
-function parseQuestions(text) {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function validatePhase({ name, startDate, endDate, guidanceMessage, questions }) {
-  let questionsError = null;
-  if (questions.length > LIMITS.phaseQuestions) {
-    questionsError = `Add at most ${LIMITS.phaseQuestions} suggested questions.`;
-  } else if (questions.some((q) => q.length > LIMITS.phaseQuestion)) {
-    questionsError = `Keep each question under ${LIMITS.phaseQuestion} characters.`;
-  }
+// Phases no longer take suggested questions: the student app shows the
+// most-asked FAQs instead, because a phase's question often had no FAQ answer
+// and tapping it only opened a ticket. The API field still exists, unused.
+function validatePhase({ name, startDate, endDate, guidanceMessage }) {
   return {
     name: requiredText(name, "Phase name") ?? maxLength(name, LIMITS.phaseName, "Phase name"),
     start_date: startDate ? null : "Start date is required.",
@@ -25,7 +15,6 @@ function validatePhase({ name, startDate, endDate, guidanceMessage, questions })
       ? "End date must be on or after the start date."
       : null,
     guidance_message: maxLength(guidanceMessage, LIMITS.phaseGuidance, "Guidance message"),
-    suggested_questions: questionsError,
   };
 }
 
@@ -34,9 +23,6 @@ export default function PhaseFormModal({ initialPhase, onSave, onClose }) {
   const [startDate, setStartDate] = useState(initialPhase?.start_date ?? "");
   const [endDate, setEndDate] = useState(initialPhase?.end_date ?? "");
   const [guidanceMessage, setGuidanceMessage] = useState(initialPhase?.guidance_message ?? "");
-  const [suggestedQuestionsText, setSuggestedQuestionsText] = useState(
-    (initialPhase?.suggested_questions ?? []).join("\n")
-  );
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [errorMessage, setErrorMessage] = useState("");
@@ -44,8 +30,7 @@ export default function PhaseFormModal({ initialPhase, onSave, onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage("");
-    const questions = parseQuestions(suggestedQuestionsText);
-    const found = validatePhase({ name, startDate, endDate, guidanceMessage, questions });
+    const found = validatePhase({ name, startDate, endDate, guidanceMessage });
     setErrors(found);
     if (hasErrors(found)) return;
 
@@ -56,7 +41,6 @@ export default function PhaseFormModal({ initialPhase, onSave, onClose }) {
         start_date: startDate,
         end_date: endDate,
         guidance_message: guidanceMessage.trim(),
-        suggested_questions: questions,
       });
       onClose();
     } catch (error) {
@@ -120,7 +104,7 @@ export default function PhaseFormModal({ initialPhase, onSave, onClose }) {
           </div>
         </div>
 
-        <div className="mb-3">
+        <div className="mb-4">
           <label htmlFor="phase-guidance" className="mb-1 block text-sm text-gray-600">Guidance message</label>
           <textarea
             id="phase-guidance"
@@ -132,22 +116,6 @@ export default function PhaseFormModal({ initialPhase, onSave, onClose }) {
             className={`w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gold/40 ${invalidInput(errors.guidance_message)}`}
           />
           <FieldError message={errors.guidance_message} />
-        </div>
-
-        <div className="mb-4">
-          <label htmlFor="phase-questions" className="mb-1 block text-sm text-gray-600">
-            Suggested questions (one per line, up to {LIMITS.phaseQuestions})
-          </label>
-          <textarea
-            id="phase-questions"
-            value={suggestedQuestionsText}
-            onChange={(e) => setSuggestedQuestionsText(e.target.value)}
-            rows={4}
-            placeholder={"How do I apply for a scholarship?\nWhat are the enrollment requirements?"}
-            aria-invalid={Boolean(errors.suggested_questions)}
-            className={`w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gold/40 ${invalidInput(errors.suggested_questions)}`}
-          />
-          <FieldError message={errors.suggested_questions} />
         </div>
 
         {errorMessage && <p className="mb-3 text-sm text-red-600">{errorMessage}</p>}

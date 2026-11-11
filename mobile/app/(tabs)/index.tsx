@@ -172,6 +172,34 @@ export default function StudentChatScreen() {
   }, [isSending]);
   const waitingHint = waitSeconds >= 12 ? "Almost there…" : waitSeconds >= 4 ? "Checking the FAQs…" : null;
 
+  // The welcome greeting shrinks to fit the space left between the office
+  // picker and the suggestion cards (less with the keyboard open, a phase
+  // banner, or a small phone), instead of spilling over them:
+  // 0 = full, 1 = smaller logo and no subtitle, 2 = greeting and title only,
+  // 3 = nothing (no room at all). Each level's height is measured the first
+  // time it is shown; until then it is estimated from the full height.
+  const [welcomeSpace, setWelcomeSpace] = useState<number | null>(null);
+  const [welcomeHeights, setWelcomeHeights] = useState<Record<number, number>>({});
+  const levelHeight = (level: number) => {
+    if (welcomeHeights[level]) return welcomeHeights[level];
+    const full = welcomeHeights[0];
+    if (!full) return null;
+    return level === 1 ? full - 70 : full - 126; // subtitle and logo removed
+  };
+  let welcomeLevel = keyboardHeight > 0 ? 1 : 0;
+  if (welcomeSpace !== null) {
+    while (welcomeLevel < 3) {
+      const needed = levelHeight(welcomeLevel);
+      if (needed === null || needed <= welcomeSpace) break;
+      welcomeLevel += 1;
+    }
+  }
+  const recordWelcomeHeight = (height: number) => {
+    if (welcomeLevel < 3 && Math.abs((welcomeHeights[welcomeLevel] ?? 0) - height) > 1) {
+      setWelcomeHeights((prev) => ({ ...prev, [welcomeLevel]: height }));
+    }
+  };
+
   const handleSend = () => {
     const trimmed = message.trim();
     if (!trimmed || isSending) return;
@@ -329,13 +357,25 @@ export default function StudentChatScreen() {
 
           <View style={[styles.body, { paddingBottom: keyboardHeight }]}>
             {messages.length === 0 ? (
-              <Animated.View entering={FadeIn.duration(400)} style={styles.welcomeBlock}>
-                <BotAvatar size={64} />
-                <Text style={styles.welcomeGreeting}>Hi, {currentUser?.first_name ?? "there"} 👋</Text>
-                <Text style={styles.welcomeTitle}>What can I help with?</Text>
-                <Text style={styles.welcomeSubtitle}>
-                  Ask about enrollment, scholarships, clearance and other student services.
-                </Text>
+              <Animated.View
+                entering={FadeIn.duration(400)}
+                style={styles.welcomeBlock}
+                onLayout={(e) => setWelcomeSpace(e.nativeEvent.layout.height)}
+              >
+                {welcomeLevel < 3 ? (
+                  <View style={styles.welcomeContent} onLayout={(e) => recordWelcomeHeight(e.nativeEvent.layout.height)}>
+                    {welcomeLevel < 2 ? <BotAvatar size={welcomeLevel === 0 ? 64 : 40} /> : null}
+                    <Text style={[styles.welcomeGreeting, welcomeLevel === 2 && styles.welcomeGreetingTight]}>
+                      Hi, {currentUser?.first_name ?? "there"} 👋
+                    </Text>
+                    <Text style={styles.welcomeTitle}>What can I help with?</Text>
+                    {welcomeLevel === 0 ? (
+                      <Text style={styles.welcomeSubtitle}>
+                        Ask about enrollment, scholarships, clearance and other student services.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
               </Animated.View>
             ) : (
               <ScrollView
@@ -543,24 +583,9 @@ export default function StudentChatScreen() {
               </View>
             ) : null}
 
-            {isChatEmpty && hasActivePhase && phase && phase.suggested_questions.length > 0 ? (
-              <View style={styles.chipsRow}>
-                {phase.suggested_questions.map((question) => (
-                  <Pressable
-                    key={question}
-                    style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      sendMessage(question);
-                    }}
-                    disabled={isSending}
-                  >
-                    <Text style={styles.chipText}>{question}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-
+            {/* The welcome screen suggests only the most-asked FAQs. A phase's
+                own suggested questions aren't shown here: they often have no
+                FAQ answer, so tapping one would just open a ticket. */}
             <View style={styles.composer}>
               <TextInput
                 style={styles.input}
@@ -768,13 +793,17 @@ const createStyles = (colors: ThemePalette) =>
       color: colors.textSecondary,
     },
     body: { flex: 1, paddingHorizontal: 16 },
-    welcomeBlock: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+    // overflow hidden: if the greeting still can't fit, it is clipped rather
+    // than drawn over the office picker or the suggestion cards.
+    welcomeBlock: { flex: 1, minHeight: 0, overflow: "hidden", alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+    welcomeContent: { alignItems: "center" },
     welcomeGreeting: {
       marginTop: 16,
       fontFamily: "Montserrat_700Bold",
       fontSize: 15,
       color: colors.textSecondary,
     },
+    welcomeGreetingTight: { marginTop: 0 },
     welcomeTitle: {
       marginTop: 4,
       fontSize: 28,
