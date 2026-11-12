@@ -1,14 +1,20 @@
 // Runs after `expo export --platform web` (see "build:web" in package.json).
-// Adds what the web version of the app needs on iPhones to every exported
-// page: the ChatDesk name, the home-screen icon, and a viewport that fits the
-// notch and stops Safari zooming in on text boxes.
 //
-// Done here rather than in app/+html.tsx: with this Expo version, any custom
-// +html.tsx stops the export from adding the app's <script> tags, leaving a
-// blank page.
+// 1. Moves the fonts and icons out of dist/assets/node_modules/. Expo puts
+//    the files it takes from npm packages (the Montserrat and Plus Jakarta
+//    Sans fonts, the icon font) there, but Cloudflare Pages never uploads a
+//    folder called "node_modules" - the fonts were missing, and the app,
+//    which waits for its fonts, spun forever. They move to dist/assets/vendor/
+//    and every reference to them is updated to match.
+//
+// 2. Adds what the web version of the app needs on iPhones to every page:
+//    the ChatDesk name, the home-screen icon, and a viewport that fits the
+//    notch and stops Safari zooming in on text boxes. (Done here rather than
+//    in app/+html.tsx: with this Expo version, any custom +html.tsx stops the
+//    export from adding the app's <script> tags, leaving a blank page.)
 //
 // Usage: node scripts/finish-web-export.mjs [output folder, default "dist"]
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const outDir = process.argv[2] ?? "dist";
@@ -23,27 +29,61 @@ const HEAD_TAGS = [
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>',
 ].join("");
 
-function htmlFiles(dir) {
+const OLD_ASSET_PATH = "/assets/node_modules/";
+const NEW_ASSET_PATH = "/assets/vendor/";
+const TEXT_FILE = /\.(html|js|css|json|map)$/;
+
+function files(dir, pattern) {
   return readdirSync(dir).flatMap((name) => {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) return htmlFiles(full);
-    return name.endsWith(".html") ? [full] : [];
+    if (statSync(full).isDirectory()) return files(full, pattern);
+    return pattern.test(name) ? [full] : [];
   });
 }
 
-let changed = 0;
-for (const file of htmlFiles(outDir)) {
+if (files(outDir, /\.html$/).length === 0) {
+  console.error(`No .html files found in ${outDir} - run "expo export --platform web" first.`);
+  process.exit(1);
+}
+
+// 1. Fonts and icons out of "node_modules".
+const oldDir = path.join(outDir, "assets", "node_modules");
+const newDir = path.join(outDir, "assets", "vendor");
+let moved = 0;
+let rewritten = 0;
+if (existsSync(oldDir)) {
+  if (existsSync(newDir)) {
+    console.error(`${newDir} already exists - can't move ${oldDir} there.`);
+    process.exit(1);
+  }
+  moved = files(oldDir, /./).length;
+  renameSync(oldDir, newDir);
+  for (const file of files(outDir, TEXT_FILE)) {
+    const text = readFileSync(file, "utf8");
+    if (!text.includes(OLD_ASSET_PATH)) continue;
+    writeFileSync(file, text.split(OLD_ASSET_PATH).join(NEW_ASSET_PATH));
+    rewritten += 1;
+  }
+}
+
+// 2. iPhone name, icon and viewport on every page.
+let pages = 0;
+for (const file of files(outDir, /\.html$/)) {
   let html = readFileSync(file, "utf8");
   if (html.includes('name="apple-mobile-web-app-title"')) continue; // already done
   html = html.replace(/<meta name="viewport" content="[^"]*"\s*\/?>/, `<meta name="viewport" content="${VIEWPORT}"/>`);
   html = html.replace(/<title>[^<]*<\/title>/, "");
   html = html.replace("</head>", `${HEAD_TAGS}</head>`);
   writeFileSync(file, html);
-  changed += 1;
+  pages += 1;
 }
 
-if (changed === 0 && htmlFiles(outDir).length === 0) {
-  console.error(`No .html files found in ${outDir} - run "expo export --platform web" first.`);
+const leftovers = files(outDir, TEXT_FILE).filter((file) => readFileSync(file, "utf8").includes(OLD_ASSET_PATH));
+if (leftovers.length) {
+  console.error(`Still referencing ${OLD_ASSET_PATH}: ${leftovers.join(", ")}`);
   process.exit(1);
 }
-console.log(`finish-web-export: updated ${changed} page(s) in ${outDir}`);
+console.log(
+  `finish-web-export: moved ${moved} font/icon file(s) to assets/vendor (${rewritten} file(s) updated), ` +
+    `updated ${pages} page(s) in ${outDir}`
+);

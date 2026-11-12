@@ -68,13 +68,15 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_700Bold,
     Montserrat_400Regular,
     Montserrat_700Bold,
   });
 
-  if (!fontsLoaded) {
+  // If the fonts can't load (offline, blocked, missing file), open the app
+  // anyway with the system font rather than showing the spinner forever.
+  if (!fontsLoaded && !fontError) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator />
