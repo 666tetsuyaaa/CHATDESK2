@@ -30,7 +30,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 import { getAllPages } from "../../lib/allPages";
-import { useWebKeyboardInset } from "../../lib/keyboard";
+import { useWebKeyboardOverlayInset } from "../../lib/keyboard";
 import { useTabBarHeight } from "../../lib/tabBar";
 import axiosClient from "../../lib/axiosClient";
 import { formatDuration, formatManila, staffResolutionSeconds } from "../../lib/dates";
@@ -106,7 +106,9 @@ export default function TicketsScreen() {
   const [nativeKeyboardHeight, setKeyboardHeight] = useState(0);
   // The web app gets no keyboard events, so there the height is measured
   // from the browser instead (see lib/keyboard.ts).
-  const webKeyboardHeight = useWebKeyboardInset();
+  // The ticket card is a pop-up (drawn outside the app), so it is lifted by
+  // the part of the screen the keyboard covers.
+  const webKeyboardHeight = useWebKeyboardOverlayInset();
   const keyboardHeight = Platform.OS === "web" ? webKeyboardHeight : nativeKeyboardHeight;
   // The tab bar floats over the list - leave room so the last row scrolls above it.
   const tabBarSpace = { paddingBottom: useTabBarHeight() };
