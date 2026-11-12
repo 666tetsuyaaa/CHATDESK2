@@ -1,19 +1,37 @@
 import { Montserrat_400Regular, Montserrat_700Bold } from "@expo-google-fonts/montserrat";
 import { useFonts, PlusJakartaSans_700Bold } from "@expo-google-fonts/plus-jakarta-sans";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, Stack, usePathname } from "expo-router";
-import { useEffect } from "react";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider as NavigationThemeProvider,
+  router,
+  Stack,
+  usePathname,
+} from "expo-router";
+import { useEffect, useMemo } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { onboardingStorageKey } from "./onboarding";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ChatProvider } from "../context/ChatContext";
-import { ThemeProvider } from "../context/ThemeContext";
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
 import { TicketBadgeProvider } from "../context/TicketBadgeContext";
 
 function RootNavigator() {
   const { currentUser, isLoading } = useAuth();
   const pathname = usePathname();
+  const { colors, isDark } = useTheme();
+  // The navigation paints its own background behind every screen - by
+  // default a light grey, which flashed white in dark mode while a tab or
+  // screen was still appearing. Give it the app's own colors instead.
+  const navigationTheme = useMemo(() => {
+    const base = isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: { ...base.colors, background: colors.surface, card: colors.surface, border: colors.border },
+    };
+  }, [isDark, colors]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -55,6 +73,7 @@ function RootNavigator() {
   // screens from this list.
   return (
     // ios_from_right gives Android the same smooth slide iOS has by default.
+    <NavigationThemeProvider value={navigationTheme}>
     <Stack screenOptions={{ headerShown: false, animation: "ios_from_right" }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="onboarding" />
@@ -64,6 +83,7 @@ function RootNavigator() {
       <Stack.Screen name="settings" />
       <Stack.Screen name="profile" />
     </Stack>
+    </NavigationThemeProvider>
   );
 }
 
