@@ -8,8 +8,6 @@ from .views import (
     PasswordResetRequestView,
     RegisterView,
     TokenRefreshView,
-    VerificationResendView,
-    VerifyEmailView,
 )
 
 urlpatterns = [
@@ -20,6 +18,4 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="auth-me"),
     path("password-reset/request/", PasswordResetRequestView.as_view(), name="auth-password-reset-request"),
     path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="auth-password-reset-confirm"),
-    path("verify-email/resend/", VerificationResendView.as_view(), name="auth-verify-email-resend"),
-    path("verify-email/<int:user_id>/<str:token>/", VerifyEmailView.as_view(), name="auth-verify-email"),
 ]

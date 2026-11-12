@@ -144,24 +144,3 @@ class PasswordResetCode(models.Model):
 
     def is_valid(self):
         return not self.is_used and self.expires_at > timezone.now()
-
-
-class EmailVerificationToken(models.Model):
-    """
-    tbl_email_verification_token - sent as a clickable link (not a typed
-    code, unlike PasswordResetCode) to a student's email on self-registration.
-    The token itself is the secret, so it's stored as a hash the same way -
-    a leaked DB row alone can't be replayed to verify an account.
-    """
-
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="email_verification_tokens")
-    token_hash = models.CharField(max_length=128)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    is_used = models.BooleanField(default=False)
-
-    class Meta:
-        db_table = "tbl_email_verification_token"
-
-    def is_valid(self):
-        return not self.is_used and self.expires_at > timezone.now()

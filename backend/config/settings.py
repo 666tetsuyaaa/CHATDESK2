@@ -187,8 +187,6 @@ REST_FRAMEWORK = {
         "password_reset_request": "60/hour",
         "password_reset_request_email": "5/hour",
         "password_reset_confirm": "100/hour",
-        "verify_email_resend": "60/hour",
-        "verify_email_resend_email": "5/hour",
         "chat": "20/min",
         "ticket_messages": "10/min",
     },
@@ -267,7 +265,6 @@ SEND_EMAIL_IN_BACKGROUND = not RUNNING_TESTS
 # Wi-Fi - set this to a reachable address for real use.
 PUBLIC_BASE_URL = config("PUBLIC_BASE_URL", default="").rstrip("/")
 
-# Optional registration gates - both off by default (API contract: any email
+# Optional registration gate - off by default (API contract: any email
 # domain may register). ALLOWED_EMAIL_DOMAINS e.g. "ustp.edu.ph".
 ALLOWED_EMAIL_DOMAINS = [d.lower() for d in config("ALLOWED_EMAIL_DOMAINS", default="", cast=Csv()) if d]
-REQUIRE_EMAIL_VERIFICATION = config("REQUIRE_EMAIL_VERIFICATION", default=False, cast=bool)

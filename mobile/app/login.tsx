@@ -51,7 +51,7 @@ export default function LoginScreen() {
       await login(email.trim(), password);
       router.replace("/");
     } catch (error: any) {
-      // Login errors (wrong password, unverified email) arrive under
+      // Login errors (wrong password, deactivated account) arrive under
       // details.non_field_errors; rate limits come as the message.
       const { general } = serverFieldErrors(error, "Unable to log in right now.");
       setErrorMessage(general ?? "Invalid email or password.");

@@ -25,7 +25,6 @@ REFRESH = "/api/v1/auth/token/refresh/"
 REGISTER = "/api/v1/auth/register/"
 RESET_REQUEST = "/api/v1/auth/password-reset/request/"
 RESET_CONFIRM = "/api/v1/auth/password-reset/confirm/"
-RESEND = "/api/v1/auth/verify-email/resend/"
 
 NO_EMAIL = {"REAL_EMAIL_ENABLED": False, "EMAIL_DEV_FALLBACK": False}
 DEV_FALLBACK = {"REAL_EMAIL_ENABLED": False, "EMAIL_DEV_FALLBACK": True}
@@ -81,15 +80,7 @@ class LoginAndSessionTests(BaseAPITestCase):
             self.login("wrong-password")
         self.assertEqual(self.login().status_code, 429)
 
-    @override_settings(REQUIRE_EMAIL_VERIFICATION=True)
-    def test_unverified_student_blocked_only_when_verification_required(self):
-        self.student.is_email_verified = False
-        self.student.save()
-        response = self.login()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("verify your email", response.data["details"]["non_field_errors"][0])
-
-    def test_unverified_student_can_log_in_by_default(self):
+    def test_unverified_student_can_log_in(self):
         self.student.is_email_verified = False
         self.student.save()
         self.assertEqual(self.login().status_code, 200)
@@ -100,7 +91,10 @@ class RegistrationTests(BaseAPITestCase):
     def test_register_accepts_any_domain_by_default(self):
         response = self.client.post(REGISTER, registration(email="someone@gmail.com"), format="json")
         self.assertEqual(response.status_code, 201)
-        self.assertIn("dev_verify_url", response.data)
+        # No verification step: the account is verified and logged in at once.
+        self.assertTrue(response.data["user"]["is_email_verified"])
+        self.assertIn("access", response.data)
+        self.assertNotIn("dev_verify_url", response.data)
 
     def test_register_rejects_common_password(self):
         response = self.client.post(REGISTER, registration(password="password123"), format="json")
@@ -122,34 +116,34 @@ class RegistrationTests(BaseAPITestCase):
         accepted = self.client.post(REGISTER, registration(email="someone@ustp.edu.ph"), format="json")
         self.assertEqual(accepted.status_code, 201)
 
-    @override_settings(**NO_EMAIL)
-    def test_no_dev_link_returned_outside_debug(self):
-        response = self.client.post(REGISTER, registration(), format="json")
+    @override_settings(**REAL_EMAIL)
+    def test_register_sends_a_welcome_email_without_a_link(self):
+        with mock.patch("users.services.send_mail") as send:
+            response = self.client.post(REGISTER, registration(), format="json")
         self.assertEqual(response.status_code, 201)
-        self.assertNotIn("dev_verify_url", response.data)
+        send.assert_called_once()
+        email = send.call_args.kwargs
+        self.assertEqual(email["subject"], "Welcome to ChatDesk")
+        self.assertEqual(email["recipient_list"], ["new.student@example.com"])
+        self.assertIn("Thank you for registering on ChatDesk", email["message"])
+        self.assertNotIn("http", email["message"])
 
     @override_settings(**REAL_EMAIL)
-    def test_failed_verification_email_rolls_back_the_account(self):
+    def test_failed_welcome_email_still_creates_the_account(self):
         with mock.patch("users.services.send_mail", side_effect=SMTPException("Gmail down")):
             response = self.client.post(REGISTER, registration(), format="json")
-        self.assertEqual(response.status_code, 503)
-        self.assertFalse(User.objects.filter(email="new.student@example.com").exists())
-        # So the retry isn't blocked by "email already exists".
-        with mock.patch("users.services.send_mail"):
-            self.assertEqual(self.client.post(REGISTER, registration(), format="json").status_code, 201)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(User.objects.filter(email="new.student@example.com").exists())
+        self.assertIn("access", response.data)
 
-    @override_settings(PUBLIC_BASE_URL="https://chatdesk.example.edu")
-    def test_verification_link_uses_public_base_url(self):
-        response = self.client.post(REGISTER, registration(), format="json")
-        self.assertTrue(response.data["dev_verify_url"].startswith("https://chatdesk.example.edu/api/v1/"))
+    def test_verification_endpoints_are_gone(self):
+        # Checked by URL lookup: rendering Django 5.0's 404 page fails under
+        # Python 3.14 (fine on the server's 3.12).
+        from django.urls import Resolver404, resolve
 
-    def test_resend_verification_is_generic_and_issues_a_new_link(self):
-        self.client.post(REGISTER, registration(), format="json")
-        known = self.client.post(RESEND, {"email": "new.student@example.com"}, format="json")
-        unknown = self.client.post(RESEND, {"email": "nobody@example.com"}, format="json")
-        self.assertEqual(known.data["message"], unknown.data["message"])
-        self.assertIn("dev_verify_url", known.data)
-        self.assertNotIn("dev_verify_url", unknown.data)
+        for path in ("/api/v1/auth/verify-email/resend/", "/api/v1/auth/verify-email/1/sometoken/"):
+            with self.assertRaises(Resolver404):
+                resolve(path)
 
 
 class PasswordResetTests(BaseAPITestCase):

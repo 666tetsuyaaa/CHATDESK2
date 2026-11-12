@@ -74,14 +74,12 @@ Response 201:
 # error if it's already taken (same pattern as the email uniqueness check).
 # password must pass the full password rules (not too common, not all numbers,
 # not too similar to the name/email, 8+ characters) - 400 under details.password.
-# A verification email is sent. If Gmail fails to send it, the account is NOT
-# created and the response is 503:
-# { "error": "email_delivery_failed", "message": "We couldn't send your verification email...", "details": {} }
-# Dev fallback: only when DEBUG=True and no Gmail App Password is configured,
-# the response also includes "dev_verify_url" instead of emailing it.
-# Optional backend settings (both off by default): ALLOWED_EMAIL_DOMAINS limits
-# registration to e.g. ustp.edu.ph (400 under details.email);
-# REQUIRE_EMAIL_VERIFICATION blocks student login until the link is clicked.
+# No email verification: the account is ready at once (is_email_verified is
+# always true) and the student is logged in by this response. A "Welcome to
+# ChatDesk" email (no link) is sent best effort - if Gmail fails, the account
+# is still created and the response is still 201.
+# Optional backend setting (off by default): ALLOWED_EMAIL_DOMAINS limits
+# registration to e.g. ustp.edu.ph (400 under details.email).
 # Throttled: 100/hour per IP (loose, since a whole campus Wi-Fi can share one IP).
 
 ### POST /api/v1/auth/login/
@@ -89,8 +87,7 @@ Public.
 Request: { "email": "string", "password": "string" }
 Response 200: Same shape as the register response.
 Response 400: reason in details.non_field_errors - "Invalid email or password.",
-"This account has been deactivated.", or (only with REQUIRE_EMAIL_VERIFICATION)
-"Please verify your email address first...".
+or "This account has been deactivated.".
 Throttled: 100/min per IP and 10/min per email.
 
 ### POST /api/v1/auth/token/refresh/
@@ -103,14 +100,6 @@ Request: { "refresh": "jwt_refresh_token_string" } → Response 200: { "access":
 # ("This account has been deactivated."), so the apps log the user out.
 # Clients log out only on a 401/400 from this endpoint - a network error,
 # timeout or 5xx just fails that request and the next one tries again.
-
-### POST /api/v1/auth/verify-email/resend/
-Public. Emails a fresh verification link (older links stop working). Always
-the same response, whether or not the email belongs to an unverified account.
-Request: { "email": "student@gmail.com" }
-Response 200: { "message": "If that email belongs to an unverified account, a new verification link has been sent." }
-# dev_verify_url is included under the same DEBUG-only fallback as register.
-# Throttled: 60/hour per IP and 5/hour per email.
 
 ### POST /api/v1/auth/logout/
 Auth required. Blacklists the refresh token.
