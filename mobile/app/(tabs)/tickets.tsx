@@ -357,6 +357,7 @@ export default function TicketsScreen() {
               }}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
+              hitSlop={{ top: 8, bottom: 8 }}
             >
               <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
                 {option.label}
@@ -663,6 +664,7 @@ export default function TicketsScreen() {
                         onPress={handleSendReply}
                         disabled={!reply.trim() || isSendingReply}
                         accessibilityRole="button"
+                        hitSlop={4}
                         accessibilityLabel="Send message"
                       >
                         {isSendingReply ? (

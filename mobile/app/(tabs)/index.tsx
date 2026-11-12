@@ -1,5 +1,6 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -38,6 +39,7 @@ import { MOTION } from "../../lib/motion";
 import { useTabBarHeight } from "../../lib/tabBar";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
 import { useInstallHint } from "../../lib/installHint";
+import { WebHitArea } from "../../components/web-hit-area";
 
 // Only shown when the backend has no FAQs to suggest yet.
 const FALLBACK_SUGGESTED_QUESTIONS = [
@@ -136,6 +138,18 @@ export default function StudentChatScreen() {
   // Switching office swaps the suggestions with a quick fade; the slower
   // one-by-one entrance is only for a fresh welcome screen.
   const [isOfficeSwitch, setIsOfficeSwitch] = useState(false);
+  // Copy button under an answer: shows "Copied" for a moment.
+  const [copiedMessage, setCopiedMessage] = useState<(typeof messages)[number] | null>(null);
+  const copyAnswer = async (item: (typeof messages)[number]) => {
+    try {
+      await Clipboard.setStringAsync(item.text);
+    } catch {
+      return; // The browser refused (rare) - nothing was copied, so no "Copied".
+    }
+    Haptics.selectionAsync().catch(() => {});
+    setCopiedMessage(item);
+    setTimeout(() => setCopiedMessage((current) => (current === item ? null : current)), 1800);
+  };
   const installHint = useInstallHint();
 
   // Refetched every time the welcome screen is shown (tab focus, "New chat",
@@ -285,6 +299,7 @@ export default function StudentChatScreen() {
               accessibilityRole="button"
               accessibilityLabel="Open menu"
             >
+              <WebHitArea slop={12} />
               <MaterialIcons name="menu" size={22} color={colors.accentText} />
             </Pressable>
             <BrandTitle style={styles.title} chatColor={isDark ? brandColors.white : brandColors.navy} />
@@ -297,6 +312,7 @@ export default function StudentChatScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Start a new chat"
                 >
+                  <WebHitArea slop={8} />
                   <MaterialIcons name="edit-note" size={22} color={colors.accentText} />
                 </Pressable>
               ) : null}
@@ -307,6 +323,7 @@ export default function StudentChatScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Open profile"
               >
+                <WebHitArea slop={12} />
                 {currentUser?.profile_picture && failedAvatarUri !== currentUser.profile_picture ? (
                   <Image
                     source={{ uri: currentUser.profile_picture }}
@@ -328,7 +345,9 @@ export default function StudentChatScreen() {
             }}
             accessibilityRole="button"
             accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
+            hitSlop={8}
           >
+            <WebHitArea slop={8} />
             <MaterialIcons name="apartment" size={14} color={colors.goldInk} />
             <Text style={styles.categoryChipText} numberOfLines={1}>
               {selectedOffice ? selectedOffice.name : "All offices"}
@@ -565,7 +584,22 @@ export default function StudentChatScreen() {
                             color={item.feedback === "down" ? colors.errorRed : colors.textMuted}
                           />
                         </PressableScale>
-                        {item.feedback ? (
+                        <PressableScale
+                          style={[styles.feedbackButton, copiedMessage === item && styles.feedbackButtonActive]}
+                          onPress={() => copyAnswer(item)}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel={copiedMessage === item ? "Answer copied" : "Copy this answer"}
+                        >
+                          <MaterialIcons
+                            name={copiedMessage === item ? "check" : "content-copy"}
+                            size={14}
+                            color={copiedMessage === item ? colors.accentText : colors.textMuted}
+                          />
+                        </PressableScale>
+                        {copiedMessage === item ? (
+                          <Text style={styles.feedbackThanksText}>Copied</Text>
+                        ) : item.feedback ? (
                           <Text style={styles.feedbackThanksText}>Thanks for your feedback</Text>
                         ) : null}
                         {item.ticketId && item.ticketAiResolved ? (
@@ -577,6 +611,7 @@ export default function StudentChatScreen() {
                             accessibilityRole="button"
                             accessibilityLabel="Still need help? Send this question to OSA staff"
                           >
+                            <WebHitArea slop={8} />
                             {followUpTicketId === item.ticketId ? (
                               <ActivityIndicator size="small" color={colors.accentText} />
                             ) : (
@@ -730,9 +765,11 @@ export default function StudentChatScreen() {
                 onPress={handleSend}
                 disabled={!canSend}
                 accessibilityRole="button"
+                hitSlop={4}
                 accessibilityLabel="Send message"
                 accessibilityState={{ disabled: !canSend }}
               >
+                <WebHitArea slop={4} />
                 {isSending ? (
                   <ActivityIndicator size="small" color={brandColors.navy} />
                 ) : (

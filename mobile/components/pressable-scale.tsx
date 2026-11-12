@@ -1,5 +1,6 @@
 import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { WebHitArea } from "./web-hit-area";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -17,6 +18,7 @@ export function PressableScale({
   pressedScale = 0.96,
   onPressIn,
   onPressOut,
+  children,
   ...rest
 }: PressableScaleProps) {
   const pressed = useSharedValue(0);
@@ -36,6 +38,14 @@ export function PressableScale({
         onPressOut?.(e);
       }}
       style={[style, animatedStyle]}
-    />
+    >
+      {(state) => (
+        <>
+          {/* hitSlop also works in the web app (react-native-web ignores it). */}
+          <WebHitArea slop={rest.hitSlop} />
+          {typeof children === "function" ? children(state) : children}
+        </>
+      )}
+    </AnimatedPressable>
   );
 }
