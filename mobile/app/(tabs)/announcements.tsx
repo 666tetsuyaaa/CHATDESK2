@@ -1,6 +1,6 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { FlatList, Image, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { NavMenu } from "../../components/nav-menu";
@@ -64,6 +64,15 @@ export default function AnnouncementsScreen() {
       cancelled = true;
     };
   }, []);
+
+  // The tab is built right after login (see (tabs)/_layout.tsx), so each
+  // time it is opened, refresh quietly - what's already on screen stays
+  // there (no loading skeleton) until the new list arrives.
+  useFocusEffect(
+    useCallback(() => {
+      loadAnnouncements();
+    }, [])
+  );
 
   const handleRefresh = async () => {
     setIsRefreshing(true);

@@ -66,6 +66,10 @@ export default function TabsLayout() {
         // Screens slide a little and cross-fade when switching tabs instead
         // of snapping.
         animation: "shift",
+        // Build Tickets and Announcements right after login instead of on
+        // the first tap, so opening them is instant - no blank screen while
+        // they appear and load.
+        lazy: false,
       }}
     >
       <Tabs.Screen

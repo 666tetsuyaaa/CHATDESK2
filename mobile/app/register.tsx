@@ -96,7 +96,7 @@ export default function RegisterScreen() {
       style={[styles.screen, keyboardInset ? { paddingBottom: keyboardInset } : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <AuthHeader />
+      <AuthHeader whileTyping="hidden" />
 
       <ScrollView
         contentContainerStyle={styles.sheet}

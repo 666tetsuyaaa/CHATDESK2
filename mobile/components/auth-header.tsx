@@ -9,11 +9,17 @@ import { BrandTitle } from "./brand-title";
 // tinted photo instead of reading as a separate sticker.
 //
 // While the keyboard is open it shrinks to a slim bar (small logo beside the
-// name), so the email and password boxes both fit above the keyboard; it
-// grows back when the keyboard closes.
-export function AuthHeader() {
+// name), so the email and password boxes both fit above the keyboard - or,
+// with whileTyping="hidden" (Sign up, the longest form), disappears
+// completely. It comes back when the keyboard closes.
+export function AuthHeader({ whileTyping = "compact" }: { whileTyping?: "compact" | "hidden" }) {
   const isKeyboardOpen = useKeyboardOpen();
   const insets = useSafeAreaInsets();
+
+  if (isKeyboardOpen && whileTyping === "hidden") {
+    // Keep clear of the phone's status bar / notch.
+    return <View style={{ height: insets.top }} />;
+  }
 
   return (
     <ImageBackground
