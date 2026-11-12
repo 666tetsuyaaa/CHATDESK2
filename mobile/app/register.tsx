@@ -28,6 +28,7 @@ import {
   validateSchoolId,
 } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
+import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../lib/keyboard";
 import { COURSE_OPTIONS } from "../lib/courses";
 import type { ThemePalette } from "../theme/colors";
 
@@ -37,6 +38,9 @@ import type { ThemePalette } from "../theme/colors";
 export default function RegisterScreen() {
   const { colors } = useTheme();
   const styles = createStyles(colors);
+  // Web: the iPhone keyboard covers the bottom of the page; shrink the
+  // form's visible area by that much so the field being typed in scrolls above it.
+  const keyboardInset = useWebKeyboardInset();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [schoolId, setSchoolId] = useState("");
@@ -89,7 +93,7 @@ export default function RegisterScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, keyboardInset ? { paddingBottom: keyboardInset } : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <AuthHeader />
@@ -97,7 +101,7 @@ export default function RegisterScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode={KEYBOARD_DISMISS_MODE}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>Sign up</Text>

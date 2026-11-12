@@ -29,6 +29,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 import { getAllPages } from "../../lib/allPages";
+import { useWebKeyboardInset } from "../../lib/keyboard";
 import axiosClient from "../../lib/axiosClient";
 import { formatDuration, formatManila, staffResolutionSeconds } from "../../lib/dates";
 import { countUnseen, hasUnreadStaffMessage, readJson, seenMessagesKey, seenTicketsKey } from "../../lib/ticketBadge";
@@ -97,7 +98,11 @@ export default function TicketsScreen() {
   const [reply, setReply] = useState("");
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [nativeKeyboardHeight, setKeyboardHeight] = useState(0);
+  // The web app gets no keyboard events, so there the height is measured
+  // from the browser instead (see lib/keyboard.ts).
+  const webKeyboardHeight = useWebKeyboardInset();
+  const keyboardHeight = Platform.OS === "web" ? webKeyboardHeight : nativeKeyboardHeight;
   const [seenMessages, setSeenMessages] = useState<Record<string, string>>({});
   const modalScrollRef = useRef<ScrollViewInstance>(null);
 
