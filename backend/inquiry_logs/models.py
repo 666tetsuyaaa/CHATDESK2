@@ -20,9 +20,15 @@ class InquiryLog(models.Model):
         DOWN = "down", "Not helpful"
 
     log_id = models.BigAutoField(primary_key=True)
+    # Null once the student's account is deleted: the log is kept (analytics,
+    # Inquiry Logs) without their identity - shown as "Deleted student".
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="inquiry_logs"
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="inquiry_logs",
     )
+    # The student's course when they asked, copied from their account, so
+    # the college filters and analytics still work after it is deleted.
+    student_course = models.CharField(max_length=10, null=True, blank=True)
     # Which office/category the student selected before asking - independent
     # of whether the inquiry ended up escalated to a ticket. Lets Office
     # Admins see their office's full inquiry volume, not just escalations.
@@ -47,6 +53,11 @@ class InquiryLog(models.Model):
 
     def __str__(self):
         return f"Log {self.log_id} ({self.detected_intent})"
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.student_course is None and self.user_id:
+            self.student_course = self.user.course
+        super().save(*args, **kwargs)
 
     @property
     def is_answer(self):

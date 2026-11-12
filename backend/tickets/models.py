@@ -80,9 +80,15 @@ class Ticket(models.Model):
     # Assigned once on creation and never changed - not even when the ticket
     # is rerouted to another office - so it stays a stable reference.
     ticket_code = models.CharField(max_length=24, unique=True, editable=False)
+    # Null once the student's account is deleted: the ticket and its
+    # conversation are kept (analytics, staff history) without their identity.
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tickets"
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="tickets",
     )
+    # The student's course when the ticket was made, copied from their
+    # account, so college filters and analytics survive its deletion.
+    student_course = models.CharField(max_length=10, null=True, blank=True)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name="resolved_tickets",
@@ -131,6 +137,8 @@ class Ticket(models.Model):
         return f"{self.ticket_code} ({self.status})"
 
     def save(self, *args, **kwargs):
+        if self._state.adding and self.student_course is None and self.user_id:
+            self.student_course = self.user.course
         if not self.ticket_code:
             self.ticket_code = next_ticket_code(self.office, self.created_at)
         if self.waiting_since is None and self.status == self.Status.PENDING:

@@ -8,6 +8,10 @@ stay in exactly one group (users/tests.py checks this).
 
 from .models import User
 
+# Shown in place of a student's name on chats and tickets kept after their
+# account was deleted.
+DELETED_STUDENT = "Deleted student"
+
 COLLEGES = [
     {
         "key": "it_computing",
@@ -63,15 +67,17 @@ def courses_for_college(key):
     return college["courses"] if college else None
 
 
-def filter_by_college(queryset, key, user_field="user"):
-    """Narrows a queryset to rows whose student is in the given college. An
-    unknown key matches nothing rather than silently ignoring the filter."""
+def filter_by_college(queryset, key, course_field="student_course"):
+    """Narrows inquiry logs or tickets to those whose student is in the given
+    college - by the course saved on each row, so rows from deleted accounts
+    still count. An unknown key matches nothing rather than silently ignoring
+    the filter."""
     if not key:
         return queryset
     courses = courses_for_college(key)
     if courses is None:
         return queryset.none()
-    return queryset.filter(**{f"{user_field}__course__in": courses})
+    return queryset.filter(**{f"{course_field}__in": courses})
 
 
 def college_list():

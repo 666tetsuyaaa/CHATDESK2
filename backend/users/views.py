@@ -322,34 +322,9 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         if instance.pk == request.user.pk:
             raise PermissionDenied("You can't delete your own account.")
-        # A student's tickets and chat logs would be deleted with the account,
-        # changing past analytics and losing staff answers - deactivating
-        # keeps the history and still blocks the login.
-        if instance.tickets.exists() or instance.inquiry_logs.exists():
-            return Response(
-                {
-                    "error": "validation_error",
-                    "message": (
-                        "This account has chat history or tickets, so it can't be deleted. "
-                        "Deactivate it instead - that blocks the login and keeps the records."
-                    ),
-                    "details": {},
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        # Announcements are deleted with their author's account, so students
-        # would silently lose them.
-        if instance.announcements.exists():
-            return Response(
-                {
-                    "error": "validation_error",
-                    "message": (
-                        "This account has posted announcements, so it can't be deleted. "
-                        "Deactivate it instead - that blocks the login and keeps the announcements."
-                    ),
-                    "details": {},
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Their chats, tickets and announcements are kept: the links to the
+        # account are cleared (shown as "Deleted student" on chats and
+        # tickets), and each chat and ticket keeps the student's course, so
+        # analytics and the college filters don't change.
         instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

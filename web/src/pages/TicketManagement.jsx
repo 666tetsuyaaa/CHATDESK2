@@ -425,7 +425,9 @@ export default function TicketManagement() {
                           </div>
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="max-w-[12rem] truncate text-sm" title={ticket.user_email}>{ticket.user_email}</div>
+                          <div className="max-w-[12rem] truncate text-sm" title={ticket.user_email ?? undefined}>
+                            {ticket.user_email ?? <span className="italic text-gray-500">Deleted student</span>}
+                          </div>
                           <div className="truncate text-xs text-gray-500">
                             {ticket.student_course || "Student"}
                           </div>

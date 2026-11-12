@@ -39,6 +39,8 @@ def send_after_commit(subject, body, recipient):
 def notify_ticket_answered(ticket):
     """Staff resolved the ticket: send the student the code and the answer."""
     student = ticket.user
+    if student is None:
+        return  # account deleted - nobody to tell
     send_after_commit(
         subject=f"Your ChatDesk ticket {ticket.ticket_code} has been answered",
         body=(
@@ -55,6 +57,8 @@ def notify_ticket_answered(ticket):
 def notify_staff_message(ticket, message):
     """Staff sent a message on the ticket's conversation."""
     student = ticket.user
+    if student is None:
+        return  # account deleted - nobody to tell
     send_after_commit(
         subject=f"New reply on your ChatDesk ticket {ticket.ticket_code}",
         body=(

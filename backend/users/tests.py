@@ -15,8 +15,9 @@ from PIL import Image
 from announcements.models import Announcement
 from config.testing import PASSWORD, BaseAPITestCase
 from faqs.models import Faq
+from inquiry_logs.models import InquiryLog
 from offices.models import Office
-from tickets.models import Ticket
+from tickets.models import Ticket, TicketMessage
 
 from .models import PasswordResetCode, User
 
@@ -402,16 +403,48 @@ class BugFixTests(BaseAPITestCase):
         response = self.client.post("/api/v1/auth/token/refresh/", {"refresh": latest}, format="json")
         self.assertEqual(response.status_code, 401)
 
-    def test_student_with_history_cannot_be_deleted(self):
-        student = self.make_user("student@example.com")
-        Ticket.objects.create(user=student, subject_category="x", issue_description="x")
-        response = self.admin.delete(f"/api/v1/users/{student.user_id}/")
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Deactivate", response.data["message"])
-        self.assertTrue(User.objects.filter(pk=student.pk).exists())
+    def test_deleting_a_student_keeps_their_chats_and_tickets(self):
+        student = self.make_user("student@example.com", course="BSCE")
+        log = InquiryLog.objects.create(
+            user=student, user_message="How do I enroll late?", detected_intent="unresolved_complex_query",
+            chatbot_response="I've created a ticket.", is_escalated=True,
+        )
+        ticket = Ticket.objects.create(user=student, log=log, subject_category="x", issue_description="x")
+        TicketMessage.objects.create(ticket=ticket, sender=student, sender_role="student", body="Any update?")
+        self.assertEqual(self.admin.delete(f"/api/v1/users/{student.user_id}/").status_code, 204)
+        self.assertFalse(User.objects.filter(pk=student.pk).exists())
 
-        fresh = self.make_user("fresh@example.com")
-        self.assertEqual(self.admin.delete(f"/api/v1/users/{fresh.user_id}/").status_code, 204)
+        log.refresh_from_db()
+        ticket.refresh_from_db()
+        self.assertIsNone(log.user)
+        self.assertIsNone(ticket.user)
+        self.assertEqual((log.student_course, ticket.student_course), ("BSCE", "BSCE"))
+
+        # Still listed for staff, without the identity, and still in its college.
+        rows = self.admin.get("/api/v1/inquiry-logs/", {"college": "engineering"}).data["results"]
+        self.assertEqual([r["log_id"] for r in rows], [log.log_id])
+        self.assertEqual((rows[0]["user_name"], rows[0]["user_email"]), ("Deleted student", None))
+        self.assertEqual(rows[0]["student_college"], "Engineering & Architecture")
+        tickets = self.admin.get("/api/v1/tickets/", {"college": "engineering"}).data["results"]
+        self.assertEqual([t["ticket_id"] for t in tickets], [ticket.ticket_id])
+        self.assertEqual((tickets[0]["user_email"], tickets[0]["student_course"]), (None, "BSCE"))
+        messages = self.admin.get(f"/api/v1/tickets/{ticket.ticket_id}/messages/").data
+        self.assertEqual(messages[0]["sender_name"], "Deleted student")
+        # Staff can still reply and resolve; no email goes out (no student).
+        self.assertEqual(
+            self.admin.post(f"/api/v1/tickets/{ticket.ticket_id}/messages/", {"body": "Closing this."}, format="json").status_code,
+            201,
+        )
+        overview = self.admin.get("/api/v1/analytics/overview/", {"college": "engineering"})
+        self.assertEqual(overview.status_code, 200)
+
+    def test_course_change_moves_the_students_records(self):
+        student = self.make_user("mover@example.com", course="BSIT")
+        ticket = Ticket.objects.create(user=student, subject_category="x", issue_description="x")
+        self.assertEqual(ticket.student_course, "BSIT")
+        self.admin.patch(f"/api/v1/users/{student.user_id}/", {"course": "BSCE"}, format="json")
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.student_course, "BSCE")
 
     def test_faq_keyword_cannot_be_a_system_intent(self):
         response = self.admin.post("/api/v1/faqs/", {
@@ -432,12 +465,13 @@ class SecondBugReviewTests(BaseAPITestCase):
         self.admin = self.client_for(self.superadmin)
         self.student = self.make_user("student@example.com")
 
-    def test_admin_with_announcements_cannot_be_deleted(self):
+    def test_deleting_an_admin_keeps_their_announcements(self):
         other = self.make_user("other.super@example.com", User.Role.SUPERADMIN)
         announcement = Announcement.objects.create(title="Hi", content="Welcome back!", created_by=other)
-        response = self.admin.delete(f"/api/v1/users/{other.user_id}/")
-        self.assertEqual(response.status_code, 400)
-        self.assertTrue(Announcement.objects.filter(pk=announcement.pk).exists())
+        self.assertEqual(self.admin.delete(f"/api/v1/users/{other.user_id}/").status_code, 204)
+        announcement.refresh_from_db()
+        self.assertIsNone(announcement.created_by)
+        self.assertEqual(self.client_for(self.student).get("/api/v1/announcements/").data["count"], 1)
 
     def test_unicode_digits_in_a_filter_return_400(self):
         self.assertEqual(self.admin.get("/api/v1/tickets/", {"office": "²"}).status_code, 400)
