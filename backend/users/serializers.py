@@ -16,7 +16,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from offices.models import Office
 
 from .models import User
-from .services import send_verification_email
 from .validators import validate_person_name, validate_school_id
 
 PROFILE_PICTURE_MAX_BYTES = 2 * 1024 * 1024
@@ -136,16 +135,12 @@ class RegisterSerializer(PersonNameMixin, serializers.ModelSerializer):
 
     def create(self, validated_data):
         validated_data["role"] = User.Role.STUDENT
-        validated_data["is_email_verified"] = False
+        # No email verification step: the account is ready to use at once.
+        validated_data["is_email_verified"] = True
         password = validated_data.pop("password")
         user = User(**validated_data)
         user.set_password(password)
         user.save()
-
-        # Raises EmailDeliveryError if Gmail fails - RegisterView runs this in
-        # a transaction so the account is rolled back rather than left
-        # half-created. Returns the link only in the DEBUG no-email fallback.
-        user._dev_verify_url = send_verification_email(user, self.context.get("request"))
         return user
 
     def to_representation(self, instance):
@@ -153,9 +148,6 @@ class RegisterSerializer(PersonNameMixin, serializers.ModelSerializer):
             "user": UserSerializer(instance, context=self.context).data,
             **_tokens_for_user(instance),
         }
-        dev_verify_url = getattr(instance, "_dev_verify_url", None)
-        if dev_verify_url:
-            data["dev_verify_url"] = dev_verify_url
         return data
 
 
@@ -183,15 +175,6 @@ class LoginSerializer(serializers.Serializer):
             if existing and existing.check_password(attrs["password"]) and not existing.is_active:
                 raise serializers.ValidationError("This account has been deactivated.")
             raise serializers.ValidationError("Invalid email or password.")
-        if (
-            settings.REQUIRE_EMAIL_VERIFICATION
-            and user.role == User.Role.STUDENT
-            and not user.is_email_verified
-        ):
-            raise serializers.ValidationError(
-                "Please verify your email address first - check your inbox for the link, "
-                "or request a new one."
-            )
         update_last_login(None, user)
         attrs["user"] = user
         return attrs
@@ -206,15 +189,6 @@ class LoginSerializer(serializers.Serializer):
 
 class PasswordResetRequestSerializer(serializers.Serializer):
     """POST /api/v1/auth/password-reset/request/ - public."""
-
-    email = serializers.EmailField()
-
-    def validate_email(self, value):
-        return value.lower().strip()
-
-
-class VerificationResendSerializer(serializers.Serializer):
-    """POST /api/v1/auth/verify-email/resend/ - public."""
 
     email = serializers.EmailField()
 

@@ -4,8 +4,6 @@ from datetime import timedelta
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.db.models import F, Q
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied
@@ -29,22 +27,18 @@ from .serializers import (
     UserCreateSerializer,
     UserSelfUpdateSerializer,
     UserSerializer,
-    VerificationResendSerializer,
 )
 from .services import (
     EmailDeliveryError,
     revoke_all_refresh_tokens,
     send_password_reset_email,
-    send_verification_email,
+    send_welcome_email,
 )
 from .throttles import EmailRateThrottle
 
 RESET_CODE_LIFETIME = timedelta(minutes=10)
 RESET_CODE_COOLDOWN = timedelta(seconds=60)
 GENERIC_REQUEST_MESSAGE = "If that email is registered, a password reset code has been sent."
-GENERIC_RESEND_MESSAGE = (
-    "If that email belongs to an unverified account, a new verification link has been sent."
-)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -59,24 +53,10 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            # Account + verification email succeed or fail together - a
-            # failed send must not leave a half-created account behind that
-            # then blocks the retry with "email already exists".
-            with transaction.atomic():
-                user = serializer.save()
-        except EmailDeliveryError:
-            return Response(
-                {
-                    "error": "email_delivery_failed",
-                    "message": (
-                        "We couldn't send your verification email right now, so your account "
-                        "wasn't created. Please try again in a few minutes."
-                    ),
-                    "details": {},
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+        user = serializer.save()
+        # A thank-you email. Best effort - if Gmail is down the student still
+        # gets their account and is logged in.
+        send_welcome_email(user)
         response_serializer = RegisterSerializer(user, context=self.get_serializer_context())
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -254,102 +234,6 @@ class PasswordResetConfirmView(APIView):
         return Response(
             {"message": "Password has been reset. You can now log in."},
             status=status.HTTP_200_OK,
-        )
-
-
-class VerificationResendView(APIView):
-    """POST /api/v1/auth/verify-email/resend/ - public. Emails a fresh
-    verification link (older links stop working). Public rather than
-    login-only so it still works when REQUIRE_EMAIL_VERIFICATION blocks
-    login. Always the same generic response."""
-
-    permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle, EmailRateThrottle]
-    throttle_scope = "verify_email_resend"
-    email_throttle_scope = "verify_email_resend_email"
-
-    def post(self, request):
-        serializer = VerificationResendSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        response_data = {"message": GENERIC_RESEND_MESSAGE}
-
-        user = User.objects.filter(
-            email__iexact=serializer.validated_data["email"],
-            is_active=True,
-            is_email_verified=False,
-        ).first()
-        if user:
-            try:
-                with transaction.atomic():
-                    dev_verify_url = send_verification_email(user, request)
-                if dev_verify_url:
-                    response_data["dev_verify_url"] = dev_verify_url
-            except EmailDeliveryError:
-                pass
-
-        return Response(response_data, status=status.HTTP_200_OK)
-
-
-def _verify_email_page(title, message, ok):
-    color = "#16A34A" if ok else "#DC2626"
-    return HttpResponse(
-        f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
-<style>
-  body {{ font-family: -apple-system, system-ui, sans-serif; background: #F9FAFB; display: flex;
-         align-items: center; justify-content: center; min-height: 100vh; margin: 0; }}
-  .card {{ background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-           padding: 40px; max-width: 400px; text-align: center; }}
-  h1 {{ color: {color}; font-size: 20px; margin: 0 0 8px; }}
-  p {{ color: #6B7280; font-size: 14px; margin: 0; }}
-</style></head>
-<body><div class="card"><h1>{title}</h1><p>{message}</p></div></body></html>""",
-        content_type="text/html",
-        status=200 if ok else 400,
-    )
-
-
-class VerifyEmailView(APIView):
-    """GET /api/v1/auth/verify-email/{user_id}/{token}/ - public. The link
-    a student clicks from their registration email. Renders a plain HTML
-    confirmation page directly - no frontend/deep-link involved, since this
-    is opened from a browser or email client, not necessarily the app."""
-
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request, user_id, token):
-        user = get_object_or_404(User, pk=user_id)
-
-        if user.is_email_verified:
-            return _verify_email_page(
-                "Already verified", "This email address has already been verified. You can log in.", True
-            )
-
-        matching_token = next(
-            (
-                t
-                for t in user.email_verification_tokens.filter(
-                    is_used=False, expires_at__gt=timezone.now()
-                ).order_by("-created_at")
-                if check_password(token, t.token_hash)
-            ),
-            None,
-        )
-        if not matching_token:
-            return _verify_email_page(
-                "Link expired or invalid",
-                "This verification link is invalid or has expired. Please request a new one.",
-                False,
-            )
-
-        user.is_email_verified = True
-        user.save(update_fields=["is_email_verified"])
-        matching_token.is_used = True
-        matching_token.save(update_fields=["is_used"])
-
-        return _verify_email_page(
-            "Email verified", "Your email address has been verified. You can now log in.", True
         )
 
 

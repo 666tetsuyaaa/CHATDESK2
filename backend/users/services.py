@@ -1,23 +1,15 @@
 import logging
-import secrets
-from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth.hashers import make_password
 from django.core.mail import send_mail
-from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
-from .models import EmailVerificationToken
-
 logger = logging.getLogger(__name__)
-
-EMAIL_VERIFICATION_TOKEN_LIFETIME = timedelta(hours=24)
 
 
 class EmailDeliveryError(Exception):
     """Sending through Gmail failed (revoked App Password, rate limit,
-    network). Callers roll back whatever the email was for."""
+    network)."""
 
 
 def deliver_email(subject, message, recipient):
@@ -42,47 +34,29 @@ def deliver_email(subject, message, recipient):
     return True
 
 
-def public_url(request, path):
-    if settings.PUBLIC_BASE_URL:
-        return settings.PUBLIC_BASE_URL + path
-    return request.build_absolute_uri(path) if request else path
-
-
-def send_verification_email(user, request):
-    """
-    Creates a fresh EmailVerificationToken for `user` (invalidating older
-    ones) and emails the link. Returns the raw link only when
-    EMAIL_DEV_FALLBACK applies (DEBUG without real email) so it can be shown
-    in the API response for testing; otherwise None. Raises
-    EmailDeliveryError if the real send fails.
-    """
-    user.email_verification_tokens.filter(is_used=False).update(is_used=True)
-    raw_token = secrets.token_urlsafe(32)
-    EmailVerificationToken.objects.create(
-        user=user,
-        token_hash=make_password(raw_token),
-        expires_at=timezone.now() + EMAIL_VERIFICATION_TOKEN_LIFETIME,
-    )
-    verify_url = public_url(request, f"/api/v1/auth/verify-email/{user.user_id}/{raw_token}/")
-
-    sent = deliver_email(
-        subject="Verify your ChatDesk email address",
-        message=(
-            f"Hi {user.first_name},\n\n"
-            "Thanks for registering for ChatDesk. Please verify your email "
-            f"address by clicking the link below:\n\n{verify_url}\n\n"
-            "This link expires in 24 hours. If you didn't create this "
-            "account, you can ignore this email."
-        ),
-        recipient=user.email,
-    )
-    if not sent and settings.EMAIL_DEV_FALLBACK:
-        return verify_url
-    return None
+def send_welcome_email(user):
+    """Thanks a student for registering. Best effort: a failed send is logged
+    and ignored - the account is already created and works without it."""
+    try:
+        deliver_email(
+            subject="Welcome to ChatDesk",
+            message=(
+                f"Hi {user.first_name},\n\n"
+                "Thank you for registering on ChatDesk! You can now log in and ask "
+                "your questions about USTP's Office of Student Affairs services.\n\n"
+                "- The ChatDesk team"
+            ),
+            recipient=user.email,
+        )
+    except EmailDeliveryError:
+        pass  # already logged by deliver_email
 
 
 def send_password_reset_email(user, raw_code):
-    """Same return/raise contract as send_verification_email."""
+    """Sends the code. Returns the code itself only when EMAIL_DEV_FALLBACK
+    applies (DEBUG without real email), so it can be shown in the API
+    response for testing; otherwise None. Raises EmailDeliveryError if the
+    real send fails."""
     sent = deliver_email(
         subject="ChatDesk password reset code",
         message=(
