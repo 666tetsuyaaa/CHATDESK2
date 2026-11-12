@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, type TextStyle } from "react-native";
+import { Linking, Platform, StyleSheet, Text, View, type TextStyle } from "react-native";
 
 // Lays out a plain-text FAQ answer so long ones are easy to scan. The text
 // itself is never changed - only how it is shown:
@@ -35,22 +35,98 @@ function parse(text: string): Block[] {
   return blocks;
 }
 
+// Web addresses, emails and Philippine phone numbers in an answer become
+// tappable: links open in the browser, emails in the mail app, numbers in
+// the phone's dialer. (School IDs like 2023304440 don't match - phone
+// numbers need a leading 0/+63, or the (088) area-code form.)
+const LINKABLE = new RegExp(
+  [
+    String.raw`(?<url>\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])`,
+    String.raw`(?<www>\bwww\.[^\s<>()]+[^\s<>().,;:!?'"])`,
+    String.raw`(?<email>\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b)`,
+    String.raw`(?<mobile>(?:\+63[\s-]?|\b0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}\b)`,
+    String.raw`(?<landline>\(0\d{2,3}\)\s?\d{3}[\s-]?\d{4}\b|\b0\d{2,3}[\s-]\d{3}[\s-]?\d{4}\b)`,
+  ].join("|"),
+  "g"
+);
+
+function hrefFor(match: RegExpExecArray) {
+  const { url, www, email, mobile, landline } = match.groups ?? {};
+  if (url) return url;
+  if (www) return `https://${www}`;
+  if (email) return `mailto:${email}`;
+  const digits = (mobile ?? landline ?? "").replace(/[^\d+]/g, "");
+  return `tel:${digits}`;
+}
+
+function Linked({ text }: { text: string }) {
+  const parts: (string | { label: string; href: string })[] = [];
+  let last = 0;
+  for (const match of text.matchAll(LINKABLE)) {
+    if (match.index > last) parts.push(text.slice(last, match.index));
+    parts.push({ label: match[0], href: hrefFor(match) });
+    last = match.index + match[0].length;
+  }
+  if (parts.length === 0) return <>{text}</>;
+  if (last < text.length) parts.push(text.slice(last));
+  return (
+    <>
+      {parts.map((part, index) =>
+        typeof part === "string" ? (
+          part
+        ) : (
+          <Text
+            key={index}
+            style={styles.link}
+            // Web: a real link (the browser opens web pages in a new tab and
+            // hands tel:/mailto: to the phone). Phones: open it ourselves.
+            {...(Platform.OS === "web"
+              ? ({
+                  href: part.href,
+                  hrefAttrs: part.href.startsWith("http") ? { target: "_blank", rel: "noopener" } : undefined,
+                } as object)
+              : { onPress: () => Linking.openURL(part.href).catch(() => {}) })}
+            accessibilityRole="link"
+            accessibilityHint={part.href.startsWith("tel:") ? "Calls this number" : undefined}
+          >
+            {part.label}
+          </Text>
+        )
+      )}
+    </>
+  );
+}
+
 function Rich({ text, style }: { text: string; style: TextStyle }) {
   const lead = LEAD_IN.exec(text);
-  if (!lead || lead[1].trim().split(/\s+/).length > 6) return <Text style={style}>{text}</Text>;
+  if (!lead || lead[1].trim().split(/\s+/).length > 6) {
+    return (
+      <Text style={style}>
+        <Linked text={text} />
+      </Text>
+    );
+  }
   return (
     <Text style={style}>
-      <Text style={styles.bold}>{lead[1]}</Text>
+      <Text style={styles.bold}>
+        <Linked text={lead[1]} />
+      </Text>
       {lead[2]}
-      {lead[3]}
+      <Linked text={lead[3]} />
     </Text>
   );
 }
 
 export function FormattedAnswer({ text, style }: { text: string; style: TextStyle }) {
   const blocks = parse(text);
-  // Short single-line replies render exactly as before.
-  if (blocks.length <= 1 && blocks[0]?.kind !== "item") return <Text style={style}>{text}</Text>;
+  // Short single-line replies render exactly as before (plus tappable links).
+  if (blocks.length <= 1 && blocks[0]?.kind !== "item") {
+    return (
+      <Text style={style}>
+        <Linked text={text} />
+      </Text>
+    );
+  }
   return (
     <View style={styles.column}>
       {blocks.map((block, index) => {
@@ -78,4 +154,7 @@ const styles = StyleSheet.create({
   marker: { minWidth: 16 },
   itemText: { flex: 1 },
   bold: { fontFamily: "Montserrat_700Bold" },
+  // Same colour as the text around it, underlined - readable on both the
+  // light and dark bubbles.
+  link: { textDecorationLine: "underline" },
 });

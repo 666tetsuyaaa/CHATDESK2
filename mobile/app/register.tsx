@@ -324,6 +324,7 @@ export default function RegisterScreen() {
             onPress={() => router.push("/login")}
             accessibilityRole="button"
             accessibilityLabel="Already have an account? Log in here"
+            hitSlop={14}
           >
             <Text style={styles.signupText}>
               Already have an account? <Text style={styles.signupLink}>Log in here</Text>

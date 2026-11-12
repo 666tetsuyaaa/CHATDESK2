@@ -244,6 +244,7 @@ export default function ForgotPasswordScreen() {
               onPress={() => setStep("request")}
               accessibilityRole="button"
               accessibilityLabel="Didn't get a code? Try again"
+          hitSlop={14}
             >
               <Text style={styles.signupText}>
                 Didn&apos;t get a code? <Text style={styles.signupLink}>Try again</Text>
@@ -256,6 +257,7 @@ export default function ForgotPasswordScreen() {
           onPress={() => router.replace("/login")}
           accessibilityRole="button"
           accessibilityLabel="Back to log in"
+          hitSlop={14}
         >
           <Text style={styles.signupText}>
             Back to <Text style={styles.signupLink}>Log in</Text>

@@ -121,6 +121,7 @@ export default function LoginScreen() {
           style={styles.forgotRow}
           accessibilityRole="button"
           accessibilityLabel="Forgot password"
+          hitSlop={14}
         >
           <Text style={styles.forgotPasswordText}>Forgot password?</Text>
         </PressableScale>
@@ -144,6 +145,7 @@ export default function LoginScreen() {
           onPress={() => router.push("/register")}
           accessibilityRole="button"
           accessibilityLabel="No account? Sign up here"
+          hitSlop={14}
         >
           <Text style={styles.signupText}>
             No account? <Text style={styles.signupLink}>Sign up here</Text>

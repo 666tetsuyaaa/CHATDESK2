@@ -173,6 +173,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
                 key={item.label}
                 style={styles.menuRow}
                 onPress={() => handleMenuItemPress(item.label)}
+                hitSlop={{ top: 2, bottom: 2 }}
                 accessibilityRole="button"
                 accessibilityLabel={item.label}
               >
@@ -220,7 +221,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
               {/* Shows the state only - taps go to the row, so a tap on the
                   switch itself can't toggle twice. Hidden from screen
                   readers, which already hear the row as a switch. */}
-              <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+              <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden aria-hidden>
                 <Switch
                   value={isDark}
                   trackColor={{ false: colors.border, true: colors.accent }}
