@@ -23,6 +23,22 @@ PROFILE_PICTURE_MAX_BYTES = 2 * 1024 * 1024
 PROFILE_PICTURE_MAX_SIDE = 512
 
 
+
+# Courses a new account can pick - every course except the retired ones,
+# which stay valid only for accounts that already have them.
+CURRENT_COURSE_CHOICES = [
+    (code, label) for code, label in User.Course.choices if code not in User.RETIRED_COURSES
+]
+
+
+def _check_course_not_retired(value, current=None):
+    if value and value in User.RETIRED_COURSES and value != current:
+        raise serializers.ValidationError(
+            "This course is no longer offered. Choose one from the current list."
+        )
+    return value
+
+
 class PersonNameMixin:
     """first_name/last_name must contain letters - not blank, digits or symbols."""
 
@@ -88,7 +104,7 @@ class RegisterSerializer(PersonNameMixin, serializers.ModelSerializer):
     """
 
     password = serializers.CharField(write_only=True, min_length=8)
-    course = serializers.ChoiceField(choices=User.Course.choices)
+    course = serializers.ChoiceField(choices=CURRENT_COURSE_CHOICES)
     school_id = serializers.CharField(max_length=20)
 
     class Meta:
@@ -261,6 +277,10 @@ class UserAdminUpdateSerializer(PersonNameMixin, serializers.ModelSerializer):
         model = User
         fields = ["first_name", "last_name", "role", "course", "school_id", "is_active", "office"]
 
+    def validate_course(self, value):
+        # An account can keep a retired course, but not be moved onto one.
+        return _check_course_not_retired(value, self.instance.course if self.instance else None)
+
     def validate_school_id(self, value):
         if not value:
             return None
@@ -309,6 +329,9 @@ class UserCreateSerializer(PersonNameMixin, serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["email", "password", "first_name", "last_name", "role", "course", "school_id", "office"]
+
+    def validate_course(self, value):
+        return _check_course_not_retired(value)
 
     def validate_email(self, value):
         value = value.lower().strip()

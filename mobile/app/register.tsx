@@ -327,6 +327,9 @@ const createStyles = (colors: ThemePalette) =>
       marginBottom: 20,
     },
     pickerValueText: {
+      // Long course names (program + major) wrap instead of pushing the arrow off.
+      flexShrink: 1,
+      marginRight: 8,
       fontSize: 15,
       fontFamily: "Montserrat_400Regular",
       color: colors.textPrimary,

@@ -571,11 +571,14 @@ export default function StudentChatScreen() {
                     <Pressable
                       style={({ pressed }) => [styles.suggestionCard, pressed && styles.suggestionCardPressed]}
                       onPress={() => {
-                        Haptics.selectionAsync().catch(() => {});
-                        setMessage(question);
+                        // Sends straight away (it used to only fill the box).
+                        // Anything already typed in the box stays there.
+                        if (isSending) return;
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        sendMessage(question);
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel={`Use suggestion: ${question}`}
+                      accessibilityLabel={`Ask: ${question}`}
                     >
                       <MaterialIcons name="auto-awesome" size={16} color={colors.gold} />
                       <Text style={styles.suggestionText} numberOfLines={2}>
