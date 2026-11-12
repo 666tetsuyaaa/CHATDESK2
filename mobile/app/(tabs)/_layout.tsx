@@ -4,6 +4,7 @@ import { useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
+import { useWebKeyboardInset } from "../../lib/keyboard";
 
 // The three destinations a student reaches most often get one-tap access
 // here. Everything else (Settings, Profile, SUS Survey, chat History) stays
@@ -14,6 +15,9 @@ export default function TabsLayout() {
   const { unseenCount } = useTicketBadge();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  // tabBarHideOnKeyboard (below) works from keyboard events the web app
+  // never gets, so on the web the tab bar is hidden here instead.
+  const isWebKeyboardOpen = useWebKeyboardInset() > 0;
   // Same colors as the tint options below. Taken from the theme rather than
   // the tab bar's `color` arg, whose type (RN 0.88 ColorValue) the icon
   // library doesn't accept.
@@ -49,6 +53,7 @@ export default function TabsLayout() {
           // pill squeezed the labels out of sight. A set height replaces the
           // automatic one, so the home-indicator inset is added back here.
           height: 62 + insets.bottom,
+          ...(isWebKeyboardOpen ? { display: "none" as const } : null),
         },
         // A point smaller on narrow phones (iPhone SE size) so "Announcements"
         // isn't cut off.

@@ -17,11 +17,15 @@ import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { type FieldErrors, hasErrors, serverFieldErrors, validateEmail } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
+import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../lib/keyboard";
 import type { ThemePalette } from "../theme/colors";
 
 export default function LoginScreen() {
   const { colors } = useTheme();
   const styles = createStyles(colors);
+  // Web: the iPhone keyboard covers the bottom of the page; shrink the
+  // form's visible area by that much so the field being typed in scrolls above it.
+  const keyboardInset = useWebKeyboardInset();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -58,7 +62,7 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, keyboardInset ? { paddingBottom: keyboardInset } : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <AuthHeader />
@@ -66,7 +70,7 @@ export default function LoginScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode={KEYBOARD_DISMISS_MODE}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>Log in</Text>

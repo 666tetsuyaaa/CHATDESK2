@@ -32,6 +32,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
 import axiosClient from "../../lib/axiosClient";
+import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../../lib/keyboard";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
 
 // Only shown when the backend has no FAQs to suggest yet.
@@ -79,7 +80,11 @@ export default function StudentChatScreen() {
   const [message, setMessage] = useState("");
   const [phase, setPhase] = useState<Phase | null>(null);
   const [isPhaseBannerDismissed, setIsPhaseBannerDismissed] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [nativeKeyboardHeight, setKeyboardHeight] = useState(0);
+  // The web app gets no keyboard events, so there the height is measured
+  // from the browser instead (see lib/keyboard.ts).
+  const webKeyboardHeight = useWebKeyboardInset();
+  const keyboardHeight = Platform.OS === "web" ? webKeyboardHeight : nativeKeyboardHeight;
   const scrollViewRef = useRef<ScrollViewInstance>(null);
   // A reply taller than most of the screen is shown from its top, not its
   // end - the first steps of a long FAQ answer are the ones to read first.
@@ -386,7 +391,7 @@ export default function StudentChatScreen() {
                 // Taps on empty space close the keyboard, taps on buttons go
                 // through on the first try, and dragging the chat closes it too.
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode={KEYBOARD_DISMISS_MODE}
                 onContentSizeChange={() => {
                   if (longReplyIndexRef.current === messages.length - 1 && !isSending) return;
                   scrollViewRef.current?.scrollToEnd({ animated: true });

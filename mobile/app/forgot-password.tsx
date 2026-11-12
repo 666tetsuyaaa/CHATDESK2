@@ -24,6 +24,7 @@ import {
   validateResetCode,
 } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
+import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../lib/keyboard";
 import type { ThemePalette } from "../theme/colors";
 
 // No mockup for this screen in ui-prototype/ - matches Login/Register's
@@ -32,6 +33,9 @@ import type { ThemePalette } from "../theme/colors";
 export default function ForgotPasswordScreen() {
   const { colors } = useTheme();
   const styles = createStyles(colors);
+  // Web: the iPhone keyboard covers the bottom of the page; shrink the
+  // form's visible area by that much so the field being typed in scrolls above it.
+  const keyboardInset = useWebKeyboardInset();
   const [step, setStep] = useState<"request" | "confirm">("request");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -101,7 +105,7 @@ export default function ForgotPasswordScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={[styles.screen, keyboardInset ? { paddingBottom: keyboardInset } : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <AuthHeader />
@@ -109,7 +113,7 @@ export default function ForgotPasswordScreen() {
       <ScrollView
         contentContainerStyle={styles.sheet}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        keyboardDismissMode={KEYBOARD_DISMISS_MODE}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.heading}>{step === "request" ? "Reset password" : "Enter code"}</Text>
