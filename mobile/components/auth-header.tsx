@@ -1,6 +1,7 @@
 import { Image, ImageBackground, Platform, StyleSheet, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardOpen } from "../lib/keyboard";
+import { MOTION, prefersReducedMotionOnWeb } from "../lib/motion";
 import { BrandTitle } from "./brand-title";
 
 const FULL_HEIGHT = 230;
@@ -10,8 +11,8 @@ const COMPACT_HEIGHT = 72;
 // jumping. (Phones animate the same change with LayoutAnimation - see
 // useKeyboardOpen in lib/keyboard.ts.)
 const webTransition = (properties: string): ViewStyle | null =>
-  Platform.OS === "web"
-    ? ({ transitionProperty: properties, transitionDuration: "220ms", transitionTimingFunction: "ease-out" } as ViewStyle)
+  Platform.OS === "web" && !prefersReducedMotionOnWeb()
+    ? ({ transitionProperty: properties, transitionDuration: `${MOTION.base}ms`, transitionTimingFunction: "ease-out" } as ViewStyle)
     : null;
 const HEIGHT_TRANSITION = webTransition("height");
 const FADE_TRANSITION = webTransition("opacity");

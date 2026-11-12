@@ -29,7 +29,9 @@ import {
   validateSchoolId,
 } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
+import Animated, { FadeIn } from "react-native-reanimated";
 import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../lib/keyboard";
+import { MOTION } from "../lib/motion";
 import { COURSE_OPTIONS } from "../lib/courses";
 import type { ThemePalette } from "../theme/colors";
 
@@ -265,9 +267,11 @@ export default function RegisterScreen() {
           <Modal
             visible={isCoursePickerOpen}
             transparent
-            animationType="fade"
+            // Quick fade in, closes at once.
+            animationType="none"
             onRequestClose={() => setIsCoursePickerOpen(false)}
           >
+            <Animated.View entering={FadeIn.duration(MOTION.fast)} style={styles.modalFill}>
             <Pressable style={styles.modalBackdrop} onPress={() => setIsCoursePickerOpen(false)}>
               <View style={styles.modalSheet}>
                 <FlatList
@@ -296,6 +300,7 @@ export default function RegisterScreen() {
                 />
               </View>
             </Pressable>
+            </Animated.View>
           </Modal>
 
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -408,6 +413,7 @@ const createStyles = (colors: ThemePalette) =>
       fontFamily: "Montserrat_400Regular",
       color: colors.textPrimary,
     },
+    modalFill: { flex: 1 },
     modalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.4)",

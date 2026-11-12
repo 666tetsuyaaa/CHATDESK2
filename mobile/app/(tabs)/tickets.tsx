@@ -36,6 +36,8 @@ import axiosClient from "../../lib/axiosClient";
 import { formatDuration, formatManila, staffResolutionSeconds } from "../../lib/dates";
 import { countUnseen, hasUnreadStaffMessage, readJson, seenMessagesKey, seenTicketsKey } from "../../lib/ticketBadge";
 import type { ThemePalette } from "../../theme/colors";
+import Animated, { FadeIn } from "react-native-reanimated";
+import { MOTION } from "../../lib/motion";
 
 type Ticket = {
   ticket_id: number;
@@ -474,9 +476,11 @@ export default function TicketsScreen() {
       <Modal
         visible={viewingTicket !== null}
         transparent
-        animationType="fade"
+        // Quick fade in, closes at once (the built-in fade took ~0.3s each way).
+        animationType="none"
         onRequestClose={closeTicket}
       >
+        <Animated.View entering={FadeIn.duration(MOTION.base)} style={styles.modalFill}>
         <Pressable
           style={[
             styles.modalBackdrop,
@@ -671,6 +675,7 @@ export default function TicketsScreen() {
             ) : null}
           </Pressable>
         </Pressable>
+        </Animated.View>
       </Modal>
 
       <NavMenu
@@ -905,6 +910,7 @@ const createStyles = (colors: ThemePalette) =>
       paddingHorizontal: 16,
     },
     viewButtonText: { fontFamily: "Montserrat_700Bold", fontSize: 13, color: colors.textPrimary },
+    modalFill: { flex: 1 },
     modalBackdrop: {
       flex: 1,
       // Lighter than the old 0.5 dim - the blur behind it does the rest.
