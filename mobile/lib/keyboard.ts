@@ -52,6 +52,11 @@ const MIN_KEYBOARD = 150;
 // pinned above it. overlayInset: how much of the screen the keyboard covers,
 // for pop-ups (React Native's Modal is drawn outside the app's root, so the
 // pinning doesn't move them - they lift their content by this much).
+function isTextField(element: EventTarget | null) {
+  const tag = (element as HTMLElement | null)?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA";
+}
+
 type WebKeyboard = { open: boolean; inset: number; overlayInset: number };
 const CLOSED: WebKeyboard = { open: false, inset: 0, overlayInset: 0 };
 
@@ -96,8 +101,7 @@ function measureWebKeyboard(): WebKeyboard {
   // about the keyboard's height in every case.
   // A keyboard only opens for a text box - this also stops a desktop browser
   // window that is made shorter from counting as one.
-  const active = document.activeElement;
-  const typing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+  const typing = isTextField(document.activeElement);
   const open = typing && fullHeight - viewport.height >= MIN_KEYBOARD;
   pinAppToVisibleArea(open, viewport);
   // The app now fits above the keyboard, so none of it is hidden behind the
@@ -126,13 +130,29 @@ export function useWebKeyboard(): WebKeyboard {
         prev.open === next.open && prev.inset === next.inset && prev.overlayInset === next.overlayInset ? prev : next
       );
     };
-    // Tapping another field while the keyboard is already open.
-    const onFocusIn = () => {
-      update();
-      requestAnimationFrame(revealFocusedField);
+    // Focus leaving a text box (to a button, or nowhere). The keyboard
+    // closing is picked up from the viewport resizing; this is only a
+    // fallback, and it waits: reacting at once rearranged the screen (tab
+    // bar back, app unpinned) in the middle of the tap that moved the focus -
+    // pressing Send with the keyboard open gives the button focus - so the
+    // button jumped away before the tap finished, the message wasn't sent and
+    // the app could stay unpinned behind a keyboard that was still open.
+    let focusOutTimer: ReturnType<typeof setTimeout> | undefined;
+    const updateSoon = () => {
+      clearTimeout(focusOutTimer);
+      focusOutTimer = setTimeout(update, 350);
     };
-    // Leaving a text box (the keyboard is closing).
-    const onFocusOut = () => requestAnimationFrame(update);
+    const onFocusIn = (event: FocusEvent) => {
+      if (isTextField(event.target)) {
+        // Tapping another text box while the keyboard is open.
+        clearTimeout(focusOutTimer);
+        update();
+        requestAnimationFrame(revealFocusedField);
+      } else {
+        updateSoon();
+      }
+    };
+    const onFocusOut = updateSoon;
 
     update();
     viewport.addEventListener("resize", update);
@@ -146,6 +166,7 @@ export function useWebKeyboard(): WebKeyboard {
       window.removeEventListener("resize", update);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
+      clearTimeout(focusOutTimer);
     };
   }, []);
 
