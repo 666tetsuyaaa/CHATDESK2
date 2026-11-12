@@ -37,6 +37,7 @@ import { KEYBOARD_DISMISS_MODE, useWebKeyboard } from "../../lib/keyboard";
 import { MOTION } from "../../lib/motion";
 import { useTabBarHeight } from "../../lib/tabBar";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
+import { useInstallHint } from "../../lib/installHint";
 
 // Only shown when the backend has no FAQs to suggest yet.
 const FALLBACK_SUGGESTED_QUESTIONS = [
@@ -135,6 +136,7 @@ export default function StudentChatScreen() {
   // Switching office swaps the suggestions with a quick fade; the slower
   // one-by-one entrance is only for a fresh welcome screen.
   const [isOfficeSwitch, setIsOfficeSwitch] = useState(false);
+  const installHint = useInstallHint();
 
   // Refetched every time the welcome screen is shown (tab focus, "New chat",
   // office change) since the tab stays mounted and the ranking shifts as
@@ -402,6 +404,31 @@ export default function StudentChatScreen() {
                 <MaterialIcons name="close" size={18} color={colors.textMuted} />
               </PressableScale>
             </View>
+          ) : null}
+
+          {/* iPhone web app: suggest adding ChatDesk to the Home Screen (opens
+              like an app, without the browser bars). On the welcome screen
+              only, and never together with the phase banner. */}
+          {installHint.visible && isChatEmpty && !(hasActivePhase && !isPhaseBannerDismissed) ? (
+            <Animated.View entering={FadeIn.duration(MOTION.base)} style={styles.phaseBanner}>
+              <View style={styles.phaseBannerIcon}>
+                <MaterialIcons name="ios-share" size={16} color={colors.goldInk} />
+              </View>
+              <View style={styles.phaseBannerText}>
+                <Text style={styles.phaseBannerTitle}>Get the ChatDesk app</Text>
+                <Text style={styles.phaseBannerMessage}>
+                  {"Tap Share, then \u201cAdd to Home Screen\u201d to open ChatDesk like an app."}
+                </Text>
+              </View>
+              <PressableScale
+                onPress={installHint.dismiss}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close the Add to Home Screen tip"
+              >
+                <MaterialIcons name="close" size={18} color={colors.textMuted} />
+              </PressableScale>
+            </Animated.View>
           ) : null}
 
           <View style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}>

@@ -38,6 +38,7 @@ import { countUnseen, hasUnreadStaffMessage, readJson, seenMessagesKey, seenTick
 import type { ThemePalette } from "../../theme/colors";
 import Animated, { FadeIn } from "react-native-reanimated";
 import { MOTION } from "../../lib/motion";
+import { TicketProgress } from "../../components/ticket-progress";
 
 type Ticket = {
   ticket_id: number;
@@ -521,6 +522,10 @@ export default function TicketsScreen() {
                     <MaterialIcons name="close" size={22} color={colors.textSecondary} />
                   </PressableScale>
                 </View>
+
+                {/* Staff tickets: where it is now (ChatDesk's own answers don't go
+                    through these steps). */}
+                {!viewingTicket.is_ai_resolved ? <TicketProgress status={viewingTicket.status} /> : null}
 
                 <ScrollView
                   ref={modalScrollRef}
