@@ -1,8 +1,20 @@
-import { useState } from "react";
-import { Image, ImageBackground, StyleSheet, View } from "react-native";
+import { Image, ImageBackground, Platform, StyleSheet, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardOpen } from "../lib/keyboard";
 import { BrandTitle } from "./brand-title";
+
+const FULL_HEIGHT = 230;
+const COMPACT_HEIGHT = 72;
+
+// Web: CSS transitions so the header glides between its two sizes instead of
+// jumping. (Phones animate the same change with LayoutAnimation - see
+// useKeyboardOpen in lib/keyboard.ts.)
+const webTransition = (properties: string): ViewStyle | null =>
+  Platform.OS === "web"
+    ? ({ transitionProperty: properties, transitionDuration: "220ms", transitionTimingFunction: "ease-out" } as ViewStyle)
+    : null;
+const HEIGHT_TRANSITION = webTransition("height");
+const FADE_TRANSITION = webTransition("opacity");
 
 // Shared header for login/register/forgot-password - the campus photo
 // backdrop with a navy tint, and the mascot logo sitting directly on it
@@ -10,48 +22,47 @@ import { BrandTitle } from "./brand-title";
 // tinted photo instead of reading as a separate sticker.
 //
 // While the keyboard is open it shrinks to a slim bar (small logo beside the
-// name), so the email and password boxes both fit above the keyboard, and
-// comes back when the keyboard closes.
-//
-// whileTyping="hidden" (Sign up, the longest form): it disappears once
-// typing starts and stays hidden until the screen is left. Bringing it back
-// when the keyboard closed pushed the form down while it was still scrolled,
-// cutting off the "Sign up" title and pushing the Sign Up button off screen;
-// without it the whole form fits.
-export function AuthHeader({ whileTyping = "compact" }: { whileTyping?: "compact" | "hidden" }) {
+// name), so the boxes being filled in fit above the keyboard, and grows back
+// when the keyboard closes. Both looks are drawn on top of each other and
+// cross-fade while the height changes, so the switch is smooth.
+export function AuthHeader() {
   const isKeyboardOpen = useKeyboardOpen();
   const insets = useSafeAreaInsets();
-  const [hasTyped, setHasTyped] = useState(false);
-  if (whileTyping === "hidden" && isKeyboardOpen && !hasTyped) setHasTyped(true);
-
-  if (whileTyping === "hidden" && (isKeyboardOpen || hasTyped)) {
-    // Keep clear of the phone's status bar / notch.
-    return <View style={{ height: insets.top }} />;
-  }
 
   return (
     <ImageBackground
       source={require("../assets/login.jpg")}
-      style={[styles.header, isKeyboardOpen && [styles.headerCompact, { height: 72 + insets.top, paddingTop: insets.top }]]}
-      imageStyle={[styles.headerImage, isKeyboardOpen && styles.headerImageCompact]}
+      style={[styles.header, { height: isKeyboardOpen ? COMPACT_HEIGHT + insets.top : FULL_HEIGHT }, HEIGHT_TRANSITION]}
+      imageStyle={[styles.headerImage, isKeyboardOpen && styles.roundedCompact]}
       resizeMode="cover"
     >
-      <View style={[styles.overlay, isKeyboardOpen && styles.headerImageCompact]} />
-      <Image
-        source={require("../assets/1.png")}
-        style={[styles.logo, isKeyboardOpen && styles.logoCompact]}
-        resizeMode="contain"
-      />
-      <BrandTitle style={isKeyboardOpen ? [styles.brandTitle, styles.brandTitleCompact] : styles.brandTitle} />
+      <View style={[styles.overlay, isKeyboardOpen && styles.roundedCompact]} />
+
+      {/* Full header: big logo above the name. */}
+      <View
+        style={[styles.layer, { opacity: isKeyboardOpen ? 0 : 1 }, FADE_TRANSITION]}
+        pointerEvents="none"
+        aria-hidden={isKeyboardOpen}
+      >
+        <Image source={require("../assets/1.png")} style={styles.logo} resizeMode="contain" />
+        <BrandTitle style={styles.brandTitle} />
+      </View>
+
+      {/* Slim bar while typing: small logo beside the name. */}
+      <View
+        style={[styles.layer, styles.layerCompact, { paddingTop: insets.top, opacity: isKeyboardOpen ? 1 : 0 }, FADE_TRANSITION]}
+        pointerEvents="none"
+        aria-hidden={!isKeyboardOpen}
+      >
+        <Image source={require("../assets/1.png")} style={styles.logoCompact} resizeMode="contain" />
+        <BrandTitle style={[styles.brandTitle, styles.brandTitleCompact]} />
+      </View>
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
-    height: 230,
-    alignItems: "center",
-    justifyContent: "center",
     overflow: "hidden",
   },
   headerImage: {
@@ -72,6 +83,20 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,
   },
+  // Each look fills the header and centers its content.
+  layer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  layerCompact: {
+    flexDirection: "row",
+    gap: 10,
+  },
   logo: {
     width: 88,
     height: 88,
@@ -81,26 +106,21 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
   },
+  logoCompact: {
+    width: 40,
+    height: 40,
+  },
   brandTitle: {
     fontSize: 24,
     textShadowColor: "rgba(0, 0, 0, 0.35)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 6,
   },
-  headerCompact: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  headerImageCompact: {
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  logoCompact: {
-    width: 40,
-    height: 40,
-    marginBottom: 0,
-  },
   brandTitleCompact: {
     fontSize: 20,
+  },
+  roundedCompact: {
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
 });
