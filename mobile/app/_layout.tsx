@@ -11,6 +11,7 @@ import {
 } from "expo-router";
 import { useEffect, useMemo } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { DebugOverlay } from "../components/debug-overlay";
 import { OfflineBanner } from "../components/offline-banner";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { onboardingStorageKey } from "./onboarding";
@@ -114,6 +115,7 @@ export default function RootLayout() {
               <View style={{ flex: 1 }}>
                 <RootNavigator />
                 <OfflineBanner />
+                <DebugOverlay />
               </View>
             </TicketBadgeProvider>
           </ChatProvider>

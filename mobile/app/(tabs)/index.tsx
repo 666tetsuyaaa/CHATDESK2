@@ -151,6 +151,14 @@ export default function StudentChatScreen() {
     setTimeout(() => setCopiedMessage((current) => (current === item ? null : current)), 1800);
   };
   const installHint = useInstallHint();
+  // Small screens with the keyboard open (e.g. an iPhone SE in the browser
+  // leaves ~260pt): the suggested questions step aside while typing if they
+  // and the message box don't both fit, so the box is never pushed under the
+  // keyboard. They come back when the keyboard closes. (Heights are only
+  // measured while shown, so hiding them can't flip back and forth.)
+  const [bodyHeight, setBodyHeight] = useState(0);
+  const [suggestionsHeight, setSuggestionsHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
 
   // Refetched every time the welcome screen is shown (tab focus, "New chat",
   // office change) since the tab stays mounted and the ranking shifts as
@@ -242,7 +250,7 @@ export default function StudentChatScreen() {
     if (!full) return null;
     return level === 1 ? full - 70 : full - 126; // subtitle and logo removed
   };
-  let welcomeLevel = keyboardHeight > 0 ? 1 : 0;
+  let welcomeLevel = isKeyboardOpen ? 1 : 0;
   if (welcomeSpace !== null) {
     while (welcomeLevel < 3) {
       const needed = levelHeight(welcomeLevel);
@@ -272,6 +280,8 @@ export default function StudentChatScreen() {
   };
 
   const canSend = message.trim().length > 0 && !isSending;
+  const hideSuggestions =
+    isKeyboardOpen && bodyHeight > 0 && suggestionsHeight > 0 && bodyHeight < suggestionsHeight + composerHeight + 24;
   // Falls back to the initial when the photo URL is set but won't load.
   const [failedAvatarUri, setFailedAvatarUri] = useState<string | null>(null);
 
@@ -450,7 +460,10 @@ export default function StudentChatScreen() {
             </Animated.View>
           ) : null}
 
-          <View style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}>
+          <View
+            style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}
+            onLayout={(e) => setBodyHeight(e.nativeEvent.layout.height)}
+          >
             {messages.length === 0 ? (
               <Animated.View
                 entering={FadeIn.duration(MOTION.slow)}
@@ -695,8 +708,11 @@ export default function StudentChatScreen() {
               </ScrollView>
             )}
 
-            {messages.length === 0 ? (
-              <View style={styles.suggestions}>
+            {messages.length === 0 && !hideSuggestions ? (
+              <View
+                style={styles.suggestions}
+                onLayout={(e) => setSuggestionsHeight(e.nativeEvent.layout.height)}
+              >
                 {suggestedQuestions.map((question, index) => (
                   <Animated.View
                     key={question}
@@ -728,7 +744,7 @@ export default function StudentChatScreen() {
             {/* The welcome screen suggests only the most-asked FAQs. A phase's
                 own suggested questions aren't shown here: they often have no
                 FAQ answer, so tapping one would just open a ticket. */}
-            <View style={styles.composer}>
+            <View style={styles.composer} onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}>
               <TextInput
                 style={styles.input}
                 placeholder="Message ChatDesk..."
@@ -777,7 +793,7 @@ export default function StudentChatScreen() {
                 )}
               </Pressable>
             </View>
-            {keyboardHeight === 0 ? (
+            {!isKeyboardOpen ? (
               <Text style={styles.disclaimer}>ChatDesk can make mistakes. Check important info with OSA.</Text>
             ) : null}
           </View>
