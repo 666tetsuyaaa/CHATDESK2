@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Image, ImageBackground, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useKeyboardOpen } from "../lib/keyboard";
@@ -9,14 +10,21 @@ import { BrandTitle } from "./brand-title";
 // tinted photo instead of reading as a separate sticker.
 //
 // While the keyboard is open it shrinks to a slim bar (small logo beside the
-// name), so the email and password boxes both fit above the keyboard - or,
-// with whileTyping="hidden" (Sign up, the longest form), disappears
-// completely. It comes back when the keyboard closes.
+// name), so the email and password boxes both fit above the keyboard, and
+// comes back when the keyboard closes.
+//
+// whileTyping="hidden" (Sign up, the longest form): it disappears once
+// typing starts and stays hidden until the screen is left. Bringing it back
+// when the keyboard closed pushed the form down while it was still scrolled,
+// cutting off the "Sign up" title and pushing the Sign Up button off screen;
+// without it the whole form fits.
 export function AuthHeader({ whileTyping = "compact" }: { whileTyping?: "compact" | "hidden" }) {
   const isKeyboardOpen = useKeyboardOpen();
   const insets = useSafeAreaInsets();
+  const [hasTyped, setHasTyped] = useState(false);
+  if (whileTyping === "hidden" && isKeyboardOpen && !hasTyped) setHasTyped(true);
 
-  if (isKeyboardOpen && whileTyping === "hidden") {
+  if (whileTyping === "hidden" && (isKeyboardOpen || hasTyped)) {
     // Keep clear of the phone's status bar / notch.
     return <View style={{ height: insets.top }} />;
   }
