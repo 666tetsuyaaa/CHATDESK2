@@ -1,20 +1,21 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
-import { useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 import { useWebKeyboard } from "../../lib/keyboard";
+import { useTabBarHeight } from "../../lib/tabBar";
 
 // The three destinations a student reaches most often get one-tap access
 // here. Everything else (Settings, Profile, SUS Survey, chat History) stays
 // behind the hamburger drawer each tab screen still renders, since those
 // aren't frequent enough to earn a permanent tab slot.
 export default function TabsLayout() {
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
   const { unseenCount } = useTicketBadge();
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const tabBarHeight = useTabBarHeight();
   // tabBarHideOnKeyboard (below) works from keyboard events the web app
   // never gets, so on the web the tab bar is hidden here instead.
   const isWebKeyboardOpen = useWebKeyboard().open;
@@ -45,16 +46,25 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.accentText,
         tabBarInactiveTintColor: colors.textMuted,
+        // Frosted glass: the bar floats over the screen (each tab screen
+        // leaves room for it - see lib/tabBar.ts) and blurs what scrolls
+        // behind it, under a mostly-opaque tint so the labels stay easy to
+        // read. Android doesn't blur (expo-blur's default there) - it just
+        // gets the tint, so scrolling stays smooth on slower phones.
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          position: "absolute",
+          backgroundColor: "transparent",
           borderTopColor: colors.border,
+          elevation: 0,
           paddingTop: 6,
-          // The default height (49) only fits a bare icon + label; the 30px
-          // pill squeezed the labels out of sight. A set height replaces the
-          // automatic one, so the home-indicator inset is added back here.
-          height: 62 + insets.bottom,
+          height: tabBarHeight,
           ...(isWebKeyboardOpen ? { display: "none" as const } : null),
         },
+        tabBarBackground: () => (
+          <BlurView intensity={40} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill}>
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: `${colors.surface}B8` }]} />
+          </BlurView>
+        ),
         // A point smaller on narrow phones (iPhone SE size) so "Announcements"
         // isn't cut off.
         tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: width < 360 ? 10 : 11, marginTop: 2 },

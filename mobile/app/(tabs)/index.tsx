@@ -32,7 +32,8 @@ import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
 import axiosClient from "../../lib/axiosClient";
-import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../../lib/keyboard";
+import { KEYBOARD_DISMISS_MODE, useWebKeyboard } from "../../lib/keyboard";
+import { useTabBarHeight } from "../../lib/tabBar";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
 
 // Only shown when the backend has no FAQs to suggest yet.
@@ -83,8 +84,11 @@ export default function StudentChatScreen() {
   const [nativeKeyboardHeight, setKeyboardHeight] = useState(0);
   // The web app gets no keyboard events, so there the height is measured
   // from the browser instead (see lib/keyboard.ts).
-  const webKeyboardHeight = useWebKeyboardInset();
-  const keyboardHeight = Platform.OS === "web" ? webKeyboardHeight : nativeKeyboardHeight;
+  const webKeyboard = useWebKeyboard();
+  const keyboardHeight = Platform.OS === "web" ? webKeyboard.inset : nativeKeyboardHeight;
+  const isKeyboardOpen = Platform.OS === "web" ? webKeyboard.open : nativeKeyboardHeight > 0;
+  // The tab bar floats over this screen (and hides while typing).
+  const tabBarHeight = useTabBarHeight();
   const scrollViewRef = useRef<ScrollViewInstance>(null);
   // A reply taller than most of the screen is shown from its top, not its
   // end - the first steps of a long FAQ answer are the ones to read first.
@@ -360,7 +364,7 @@ export default function StudentChatScreen() {
             </View>
           ) : null}
 
-          <View style={[styles.body, { paddingBottom: keyboardHeight }]}>
+          <View style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}>
             {messages.length === 0 ? (
               <Animated.View
                 entering={FadeIn.duration(400)}

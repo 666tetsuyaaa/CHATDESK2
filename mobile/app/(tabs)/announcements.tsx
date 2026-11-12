@@ -3,6 +3,7 @@ import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Image, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useTabBarHeight } from "../../lib/tabBar";
 import { NavMenu } from "../../components/nav-menu";
 import { PressableScale } from "../../components/pressable-scale";
 import { SkeletonAnnouncementCard } from "../../components/skeleton";
@@ -37,6 +38,8 @@ export default function AnnouncementsScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
+  // The tab bar floats over the list - leave room so the last card scrolls above it.
+  const tabBarSpace = { paddingBottom: useTabBarHeight() };
 
   const loadAnnouncements = async () => {
     try {
@@ -109,7 +112,7 @@ export default function AnnouncementsScreen() {
 
       {loadFailed ? (
         <ScrollView
-          contentContainerStyle={styles.centerStateContainer}
+          contentContainerStyle={[styles.centerStateContainer, tabBarSpace]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
         >
           <Text style={styles.centerState}>
@@ -124,7 +127,7 @@ export default function AnnouncementsScreen() {
         </View>
       ) : announcements.length === 0 ? (
         <ScrollView
-          contentContainerStyle={styles.emptyStateContainer}
+          contentContainerStyle={[styles.emptyStateContainer, tabBarSpace]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
         >
           <View style={styles.emptyIconCircle}>
@@ -138,7 +141,7 @@ export default function AnnouncementsScreen() {
         <FlatList
           data={announcements}
           keyExtractor={(announcement) => String(announcement.announcement_id)}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 24 + tabBarSpace.paddingBottom }]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
           renderItem={({ item: announcement }) => (
             <View style={styles.card}>
