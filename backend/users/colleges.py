@@ -20,14 +20,26 @@ COLLEGES = [
         "courses": ["BSARCH", "BSCE", "BSCPE", "BSEE", "BSECE", "BSGE", "BSME"],
     },
     {
+        "key": "science_math",
+        "name": "Science & Mathematics",
+        "courses": ["BSAP", "BSAMATH", "BSCHEM", "BSES-EMT", "BSES-NRM", "BSFT"],
+    },
+    {
         "key": "technology",
         "name": "Technology",
-        "courses": ["BSAUTO", "BSEMT", "BSELT", "BSESM", "BSMFG", "BTOM"],
+        "courses": [
+            "BSAUTO", "BSELT-ES", "BSELT-MST", "BSELT-TN", "BSESM-EMCM", "BSESM-PSDE",
+            "BSEMT-MR", "BSEMT-IA", "BSMFG", "BTOM",
+            "BSELT", "BSESM", "BSEMT",  # retired
+        ],
     },
     {
         "key": "education",
         "name": "Education",
-        "courses": ["BTLED", "BTVTED", "BSED", "BEED"],
+        "courses": [
+            "BTLED-HE", "BTLED-IA", "BTVTED-CSS", "BTVTED-FG", "BTVTED-FSM", "BSED-SCI", "BSED-MATH",
+            "BTLED", "BTVTED", "BSED", "BEED",  # retired
+        ],
     },
     {
         "key": "other",
@@ -68,7 +80,12 @@ def college_list():
         {
             "key": college["key"],
             "name": college["name"],
-            "courses": [{"code": code, "name": labels.get(code, code)} for code in college["courses"]],
+            # Retired courses are still listed (marked) so the dashboard can show
+            # an existing account's course; it doesn't offer them for new ones.
+            "courses": [
+                {"code": code, "name": labels.get(code, code), **({"retired": True} if code in User.RETIRED_COURSES else {})}
+                for code in college["courses"]
+            ],
         }
         for college in COLLEGES
     ]

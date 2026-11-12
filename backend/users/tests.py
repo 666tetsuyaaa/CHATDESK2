@@ -260,6 +260,64 @@ class CollegeTests(BaseAPITestCase):
         data = client.get("/api/v1/colleges/").data
         it = next(c for c in data if c["key"] == "it_computing")
         self.assertIn({"code": "BSIT", "name": "BS Information Technology"}, it["courses"])
+        science = next(c for c in data if c["key"] == "science_math")
+        self.assertIn({"code": "BSCHEM", "name": "BS Chemistry"}, science["courses"])
+        education = next(c for c in data if c["key"] == "education")
+        self.assertIn(
+            {"code": "BEED", "name": "BS Elementary Education", "retired": True}, education["courses"]
+        )
+
+
+@override_settings(**DEV_FALLBACK)
+class CourseListTests(BaseAPITestCase):
+    """The November 2026 official course list: one code per major, and the
+    older codes kept only for accounts that already have them."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin = self.client_for(
+            self.make_user("super@example.com", User.Role.SUPERADMIN, is_staff=True, is_superuser=True)
+        )
+
+    def test_register_with_a_major(self):
+        response = self.client.post(REGISTER, registration(course="BSELT-TN"), format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(User.objects.get(email="new.student@example.com").course, "BSELT-TN")
+
+    def test_register_with_nursing_still_allowed(self):
+        response = self.client.post(REGISTER, registration(course="BSN"), format="json")
+        self.assertEqual(response.status_code, 201)
+
+    def test_register_rejects_a_retired_course(self):
+        for course in ("BEED", "BSELT", "BTLED"):
+            response = self.client.post(REGISTER, registration(course=course), format="json")
+            self.assertEqual(response.status_code, 400, course)
+            self.assertIn("course", response.data["details"])
+
+    def test_existing_account_keeps_a_retired_course(self):
+        student = self.make_user("old.student@example.com", course="BEED")
+        response = self.admin.patch(f"/api/v1/users/{student.user_id}/", {"course": "BEED", "first_name": "Ana"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        student.refresh_from_db()
+        self.assertEqual((student.course, student.first_name), ("BEED", "Ana"))
+
+    def test_account_cannot_be_moved_onto_a_retired_course(self):
+        student = self.make_user("student@example.com", course="BSIT")
+        response = self.admin.patch(f"/api/v1/users/{student.user_id}/", {"course": "BSED"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        response = self.admin.patch(f"/api/v1/users/{student.user_id}/", {"course": "BSED-MATH"}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_admin_cannot_create_an_account_with_a_retired_course(self):
+        payload = {"email": "made@example.com", "password": PASSWORD, "first_name": "Made", "last_name": "Here",
+                   "role": "student", "course": "BSESM", "school_id": "2026-00099"}
+        self.assertEqual(self.admin.post("/api/v1/users/", payload, format="json").status_code, 400)
+        payload["course"] = "BSESM-PSDE"
+        self.assertEqual(self.admin.post("/api/v1/users/", payload, format="json").status_code, 201)
+
+    def test_every_code_fits_the_database_column(self):
+        limit = User._meta.get_field("course").max_length
+        self.assertTrue(all(len(code) <= limit for code, _ in User.Course.choices))
 
 
 @override_settings(**DEV_FALLBACK)

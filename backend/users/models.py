@@ -19,16 +19,16 @@ class User(AbstractUser):
         SUPERADMIN = "superadmin", "Super Admin"
         OFFICE_ADMIN = "office_admin", "Office Admin"
 
-    # USTP CDO course codes, confirmed by Jefferson against the official
-    # program list. BSN predates that confirmation and isn't on it, but
-    # wasn't asked to be removed - BSBA/BSA were and are gone.
+    # USTP CDO programs, from the official list Jefferson gave (Nov 2026).
+    # A program with majors has one code per major. BSN isn't on that list
+    # but was kept on request.
     class Course(models.TextChoices):
-        # Information Technology / Computer Science
+        # Information Technology / Computing
         BSIT = "BSIT", "BS Information Technology"
         BSCS = "BSCS", "BS Computer Science"
         BSDS = "BSDS", "BS Data Science"
-        BTCM = "BTCM", "Bachelor in Technology Communication Management"
-        # Engineering
+        BTCM = "BTCM", "BS Technology Communication Management"
+        # Engineering & Architecture
         BSARCH = "BSARCH", "BS Architecture"
         BSCE = "BSCE", "BS Civil Engineering"
         BSCPE = "BSCPE", "BS Computer Engineering"
@@ -36,20 +36,46 @@ class User(AbstractUser):
         BSECE = "BSECE", "BS Electronics Engineering"
         BSGE = "BSGE", "BS Geodetic Engineering"
         BSME = "BSME", "BS Mechanical Engineering"
+        # Science & Mathematics
+        BSAP = "BSAP", "BS Applied Physics"
+        BSAMATH = "BSAMATH", "BS Applied Mathematics"
+        BSCHEM = "BSCHEM", "BS Chemistry"
+        BSES_EMT = "BSES-EMT", "BS Environmental Science - Environmental Management and Technology"
+        BSES_NRM = "BSES-NRM", "BS Environmental Science - Natural Resource Management"
+        BSFT = "BSFT", "BS Food Technology"
         # Technology
         BSAUTO = "BSAUTO", "BS Autotronics"
-        BSEMT = "BSEMT", "BS Electro-Mechanical Technology"
-        BSELT = "BSELT", "BS Electronics Technology"
-        BSESM = "BSESM", "BS Energy Systems and Management"
-        BSMFG = "BSMFG", "BS Manufacturing Engineering Technology"
+        BSELT_ES = "BSELT-ES", "BS Electronics Technology - Electronics Systems"
+        BSELT_MST = "BSELT-MST", "BS Electronics Technology - Multimedia System Technology"
+        BSELT_TN = "BSELT-TN", "BS Electronics Technology - Telecommunications & Networks"
+        BSESM_EMCM = "BSESM-EMCM", "BS Energy Systems and Management - Electrical Machines Control & Maintenance"
+        BSESM_PSDE = "BSESM-PSDE", "BS Energy Systems and Management - Power System Distribution with Eco-Design"
+        BSEMT_MR = "BSEMT-MR", "BS Electro-Mechanical Technology - Mechatronics & Robotics"
+        BSEMT_IA = "BSEMT-IA", "BS Electro-Mechanical Technology - Industrial Automation"
+        BSMFG = "BSMFG", "BS Manufacturing Engineering Technology - Mechanical Design & Fabrication"
         BTOM = "BTOM", "Bachelor of Technology, Operations, and Management"
         # Education
+        BTLED_HE = "BTLED-HE", "Bachelor in Technology and Livelihood Education - Home Economics"
+        BTLED_IA = "BTLED-IA", "Bachelor in Technology and Livelihood Education - Industrial Arts"
+        BTVTED_CSS = "BTVTED-CSS", "Bachelor in Technical-Vocational Teacher Education - Computer System Servicing"
+        BTVTED_FG = "BTVTED-FG", "Bachelor in Technical-Vocational Teacher Education - Fashion and Garments"
+        BTVTED_FSM = "BTVTED-FSM", "Bachelor in Technical-Vocational Teacher Education - Food Service Management"
+        BSED_SCI = "BSED-SCI", "Bachelor of Secondary Education - Science"
+        BSED_MATH = "BSED-MATH", "Bachelor of Secondary Education - Mathematics"
+        # Other
+        BSN = "BSN", "BS Nursing"
+        # Retired: from the earlier list, replaced by the codes above. Still
+        # valid so accounts that already have one keep working, but they
+        # can't be picked for a new account (see RETIRED_COURSES).
         BTLED = "BTLED", "Bachelor in Technology and Livelihood Education"
         BTVTED = "BTVTED", "Bachelor in Technical-Vocational Teacher Education"
         BSED = "BSED", "BS Secondary Education"
         BEED = "BEED", "BS Elementary Education"
-        # Not yet confirmed on the official list
-        BSN = "BSN", "BS Nursing"
+        BSELT = "BSELT", "BS Electronics Technology"
+        BSESM = "BSESM", "BS Energy Systems and Management"
+        BSEMT = "BSEMT", "BS Electro-Mechanical Technology"
+
+    RETIRED_COURSES = frozenset({"BTLED", "BTVTED", "BSED", "BEED", "BSELT", "BSESM", "BSEMT"})
 
     username = None
     date_joined = None

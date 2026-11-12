@@ -30,12 +30,19 @@ export default function UserFormModal({ initialUser, offices, onSave, onClose })
   const [errorMessage, setErrorMessage] = useState("");
 
   // The exact course list the backend accepts (served by /colleges/, which
-  // groups them - shown here as one flat list).
+  // groups them - shown here as one flat list). Retired courses are left out,
+  // except the one this account already has, so it still shows.
   useEffect(() => {
     getColleges()
-      .then((res) => setCourses(res.data.flatMap((group) => group.courses)))
+      .then((res) =>
+        setCourses(
+          res.data
+            .flatMap((group) => group.courses)
+            .filter((c) => !c.retired || c.code === initialUser?.course)
+        )
+      )
       .catch(() => setCourses([]));
-  }, []);
+  }, [initialUser?.course]);
 
   const validate = () => ({
     first_name: validatePersonName(firstName, "First name"),

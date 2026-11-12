@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Keyboard, LayoutAnimation, Platform } from "react-native";
 
 // How a ScrollView should treat the keyboard when it scrolls.
 // Phones: "on-drag" - swiping the content closes the keyboard.
@@ -85,4 +85,38 @@ export function useWebKeyboardInset() {
   }, [inset]);
 
   return inset;
+}
+
+/**
+ * Whether the on-screen keyboard is open - on phones (from keyboard events)
+ * and in the web app (from useWebKeyboardInset). On phones the change is
+ * animated in step with the keyboard, so whatever resizes on it moves with
+ * the keyboard instead of jumping.
+ */
+export function useKeyboardOpen() {
+  const webOpen = useWebKeyboardInset() > 0;
+  const [nativeOpen, setNativeOpen] = useState(false);
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const isIOS = Platform.OS === "ios";
+    const animate = (duration: number) => {
+      const ms = Math.max(duration, 150);
+      LayoutAnimation.configureNext({ duration: ms, update: { duration: ms, type: LayoutAnimation.Types.easeInEaseOut } });
+    };
+    const showSub = Keyboard.addListener(isIOS ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      animate(e.duration);
+      setNativeOpen(true);
+    });
+    const hideSub = Keyboard.addListener(isIOS ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      animate(e.duration);
+      setNativeOpen(false);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  return Platform.OS === "web" ? webOpen : nativeOpen;
 }
