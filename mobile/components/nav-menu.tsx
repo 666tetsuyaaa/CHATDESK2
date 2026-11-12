@@ -10,6 +10,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   useWindowDimensions,
   View,
@@ -53,7 +54,7 @@ type NavMenuProps = {
 };
 
 export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProps) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, toggleDarkMode } = useTheme();
   const { currentUser } = useAuth();
   const styles = createStyles(colors);
   const { history, resumeSession, startNewChat } = useChat();
@@ -204,6 +205,32 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
 
           {/* Pinned to the bottom, away from History, so it never moves. */}
           <View style={styles.footer}>
+            {/* Dark Mode lives here (moved from Settings) so it's one tap
+                away. The whole row toggles it, not just the switch. */}
+            <Pressable
+              style={styles.footerRow}
+              onPress={toggleDarkMode}
+              accessibilityRole="switch"
+              accessibilityLabel="Dark Mode"
+              accessibilityState={{ checked: isDark }}
+              aria-checked={isDark}
+            >
+              <MaterialIcons name="dark-mode" size={20} color={colors.accentText} />
+              <Text style={styles.menuLabel}>Dark Mode</Text>
+              {/* Shows the state only - taps go to the row, so a tap on the
+                  switch itself can't toggle twice. Hidden from screen
+                  readers, which already hear the row as a switch. */}
+              <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+                <Switch
+                  value={isDark}
+                  trackColor={{ false: colors.border, true: colors.accent }}
+                  thumbColor={colors.white}
+                  // Web: react-native-web colours the "on" knob from its own
+                  // prop (default green) instead of thumbColor.
+                  {...({ activeThumbColor: colors.white } as object)}
+                />
+              </View>
+            </Pressable>
             <PressableScale
               style={styles.logoutButton}
               pressedScale={0.98}
@@ -282,6 +309,7 @@ const createStyles = (colors: ThemePalette) =>
       color: colors.textSecondary,
     },
     footer: { borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 8 },
+    footerRow: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
     logoutButton: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44 },
     logoutText: { fontFamily: "Montserrat_700Bold", color: colors.errorRed, fontSize: 15 },
   });

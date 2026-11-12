@@ -2,7 +2,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import Constants from "expo-constants";
 import { router } from "expo-router";
 import { useState } from "react";
-import { ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
@@ -10,7 +10,7 @@ import { useTheme } from "../context/ThemeContext";
 import type { ThemePalette } from "../theme/colors";
 
 export default function SettingsScreen() {
-  const { colors, isDark, toggleDarkMode } = useTheme();
+  const { colors } = useTheme();
   const { currentUser, logout } = useAuth();
   const styles = createStyles(colors);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -50,21 +50,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionHeading}>Appearance</Text>
-        <View style={styles.row}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowLabel}>Dark Mode</Text>
-            <Text style={styles.rowDescription}>Switch ChatDesk to a dark color scheme.</Text>
-          </View>
-          <Switch
-            value={isDark}
-            onValueChange={toggleDarkMode}
-            trackColor={{ false: colors.border, true: colors.accent }}
-            thumbColor={colors.white}
-            accessibilityLabel="Dark Mode"
-          />
-        </View>
-
+        {/* Dark Mode moved to the side menu (above Log out). */}
         <Text style={styles.sectionHeading}>About</Text>
         <View style={styles.row}>
           <View style={styles.rowText}>

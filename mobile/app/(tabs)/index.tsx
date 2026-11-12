@@ -111,27 +111,55 @@ export default function StudentChatScreen() {
     })();
   }, []);
 
+  // Each office's most-asked questions, remembered once loaded, so switching
+  // office shows its suggestions at once instead of waiting for the server.
+  const popularCacheRef = useRef<Record<string, string[]>>({});
+  const loadPopular = useCallback(async (officeId: number | null | undefined) => {
+    const { data } = await axiosClient.get<{ faq_id: number; question_text: string }[]>("/faqs/popular/", {
+      params: officeId ? { office: officeId } : {},
+    });
+    const questions = data.length > 0 ? data.map((faq) => faq.question_text) : FALLBACK_SUGGESTED_QUESTIONS;
+    popularCacheRef.current[String(officeId ?? "")] = questions;
+    return questions;
+  }, []);
+  // Fetches every office's suggestions in the background (when the office
+  // list is opened), so whichever office is picked is ready.
+  const prefetchPopular = () => {
+    for (const officeId of [null, ...offices.map((office) => office.office_id)]) {
+      if (!popularCacheRef.current[String(officeId ?? "")]) loadPopular(officeId).catch(() => {});
+    }
+  };
+  // Switching office swaps the suggestions with a quick fade; the slower
+  // one-by-one entrance is only for a fresh welcome screen.
+  const [isOfficeSwitch, setIsOfficeSwitch] = useState(false);
+
   // Refetched every time the welcome screen is shown (tab focus, "New chat",
   // office change) since the tab stays mounted and the ranking shifts as
-  // students keep asking.
+  // students keep asking. Remembered suggestions show at once meanwhile.
   const isChatEmpty = messages.length === 0;
   const selectedOfficeId = selectedOffice?.office_id;
   useFocusEffect(
     useCallback(() => {
       if (!isChatEmpty) return;
-      (async () => {
-        try {
-          const { data } = await axiosClient.get<{ faq_id: number; question_text: string }[]>("/faqs/popular/", {
-            params: selectedOfficeId ? { office: selectedOfficeId } : {},
-          });
-          setSuggestedQuestions(
-            data.length > 0 ? data.map((faq) => faq.question_text) : FALLBACK_SUGGESTED_QUESTIONS
-          );
-        } catch {
-          setSuggestedQuestions(FALLBACK_SUGGESTED_QUESTIONS);
-        }
-      })();
-    }, [isChatEmpty, selectedOfficeId])
+      const cached = popularCacheRef.current[String(selectedOfficeId ?? "")];
+      if (cached) setSuggestedQuestions(cached);
+      let cancelled = false;
+      // Same questions as on screen: keep the current list (no re-render).
+      const show = (questions: string[]) =>
+        setSuggestedQuestions((prev) => (prev.join("\n") === questions.join("\n") ? prev : questions));
+      loadPopular(selectedOfficeId)
+        .then((questions) => {
+          if (!cancelled) show(questions);
+        })
+        .catch(() => {
+          if (!cancelled && !cached) show(FALLBACK_SUGGESTED_QUESTIONS);
+        });
+      // A quicker office switch must not be overwritten by a slower answer
+      // for the previous office.
+      return () => {
+        cancelled = true;
+      };
+    }, [isChatEmpty, selectedOfficeId, loadPopular])
   );
 
   // Not KeyboardAvoidingView - its automatic height/padding measurement is
@@ -220,6 +248,7 @@ export default function StudentChatScreen() {
   const handleNewChat = () => {
     Haptics.selectionAsync().catch(() => {});
     setMessage("");
+    setIsOfficeSwitch(false);
     startNewChat();
   };
 
@@ -288,7 +317,10 @@ export default function StudentChatScreen() {
 
           <Pressable
             style={({ pressed }) => [styles.categoryChip, pressed && styles.categoryChipPressed]}
-            onPress={() => setIsCategoryPickerOpen(true)}
+            onPress={() => {
+              setIsCategoryPickerOpen(true);
+              prefetchPopular();
+            }}
             accessibilityRole="button"
             accessibilityLabel={selectedOffice ? `Category: ${selectedOffice.name}` : "Choose a category"}
           >
@@ -299,12 +331,15 @@ export default function StudentChatScreen() {
             <MaterialIcons name="expand-more" size={16} color={colors.textMuted} />
           </Pressable>
 
+          {/* Opens with a quick fade and closes at once - the built-in fade
+              took about 0.3s each way, so every pick felt slow. */}
           <Modal
             visible={isCategoryPickerOpen}
             transparent
-            animationType="fade"
+            animationType="none"
             onRequestClose={() => setIsCategoryPickerOpen(false)}
           >
+            <Animated.View entering={FadeIn.duration(150)} style={styles.categoryModalFill}>
             <Pressable style={styles.categoryModalBackdrop} onPress={() => setIsCategoryPickerOpen(false)}>
               <View style={styles.categoryModalSheet}>
                 <View style={styles.sheetHandle} />
@@ -323,8 +358,9 @@ export default function StudentChatScreen() {
                         ]}
                         onPress={() => {
                           Haptics.selectionAsync().catch(() => {});
-                          setSelectedOffice(item.office_id === null ? null : { office_id: item.office_id, name: item.name });
                           setIsCategoryPickerOpen(false);
+                          setIsOfficeSwitch(true);
+                          setSelectedOffice(item.office_id === null ? null : { office_id: item.office_id, name: item.name });
                         }}
                         accessibilityRole="button"
                         accessibilityLabel={item.name}
@@ -340,6 +376,7 @@ export default function StudentChatScreen() {
                 />
               </View>
             </Pressable>
+            </Animated.View>
           </Modal>
 
           {hasActivePhase && !isPhaseBannerDismissed && phase ? (
@@ -571,7 +608,10 @@ export default function StudentChatScreen() {
             {messages.length === 0 ? (
               <View style={styles.suggestions}>
                 {suggestedQuestions.map((question, index) => (
-                  <Animated.View key={question} entering={FadeInDown.delay(120 + index * 70).duration(320)}>
+                  <Animated.View
+                    key={question}
+                    entering={isOfficeSwitch ? FadeIn.duration(160) : FadeInDown.delay(120 + index * 70).duration(320)}
+                  >
                     <Pressable
                       style={({ pressed }) => [styles.suggestionCard, pressed && styles.suggestionCardPressed]}
                       onPress={() => {
@@ -724,6 +764,7 @@ const createStyles = (colors: ThemePalette) =>
       fontSize: 12,
       color: colors.textPrimary,
     },
+    categoryModalFill: { flex: 1 },
     categoryModalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.45)",
