@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { Platform } from "react-native";
 import { getItem, setItem } from "../lib/deviceStorage";
 import { darkTheme, lightTheme, type ThemePalette } from "../theme/colors";
 
@@ -21,6 +22,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       if (stored === "dark") setIsDark(true);
     })();
   }, []);
+
+  // Web: the page behind the app takes the theme's colour too, so no white
+  // shows around the app while the iPhone keyboard slides in or out (the app
+  // is pinned above it then - see lib/keyboard.ts).
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const background = (isDark ? darkTheme : lightTheme).surface;
+    document.documentElement.style.backgroundColor = background;
+    document.body.style.backgroundColor = background;
+  }, [isDark]);
 
   const toggleDarkMode = () => {
     setIsDark((prev) => {

@@ -48,8 +48,36 @@ let fullWidth = 0;
 // toolbars sliding in and out.
 const MIN_KEYBOARD = 150;
 
-type WebKeyboard = { open: boolean; inset: number };
-const CLOSED: WebKeyboard = { open: false, inset: 0 };
+// inset: how much of the app is behind the keyboard - 0, since the app is
+// pinned above it. overlayInset: how much of the screen the keyboard covers,
+// for pop-ups (React Native's Modal is drawn outside the app's root, so the
+// pinning doesn't move them - they lift their content by this much).
+type WebKeyboard = { open: boolean; inset: number; overlayInset: number };
+const CLOSED: WebKeyboard = { open: false, inset: 0, overlayInset: 0 };
+
+const PINNED = ["position", "top", "left", "right", "height"] as const;
+
+/**
+ * While the keyboard is open, the whole app is pinned to exactly the part of
+ * the screen the browser shows above it. An iPhone slides the page around
+ * when the keyboard opens (and while you drag), in ways that differ between
+ * Safari, Chrome and iOS versions; pinned to the visible area, the header
+ * stays at its top and the text box sits just above the keyboard whatever
+ * the browser does. Released when the keyboard closes.
+ */
+function pinAppToVisibleArea(open: boolean, viewport: VisualViewport) {
+  const root = document.getElementById("root");
+  if (!root) return;
+  if (open) {
+    root.style.position = "fixed";
+    root.style.left = "0";
+    root.style.right = "0";
+    root.style.top = `${Math.round(viewport.offsetTop)}px`;
+    root.style.height = `${Math.round(viewport.height)}px`;
+  } else if (root.style.position === "fixed") {
+    for (const property of PINNED) root.style.removeProperty(property);
+  }
+}
 
 function measureWebKeyboard(): WebKeyboard {
   const viewport = window.visualViewport;
@@ -71,22 +99,19 @@ function measureWebKeyboard(): WebKeyboard {
   const active = document.activeElement;
   const typing = !!active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
   const open = typing && fullHeight - viewport.height >= MIN_KEYBOARD;
-  // How much of the page itself is hidden behind the keyboard (0 when the
-  // browser already shrank the page to fit above it).
-  const inset = open ? Math.max(0, Math.round(pageHeight - viewport.height - viewport.offsetTop)) : 0;
-  return { open, inset };
+  pinAppToVisibleArea(open, viewport);
+  // The app now fits above the keyboard, so none of it is hidden behind the
+  // keyboard and screens need no extra bottom space (inset stays 0).
+  const overlayInset = open ? Math.max(0, Math.round(pageHeight - viewport.height - viewport.offsetTop)) : 0;
+  return { open, inset: 0, overlayInset };
 }
 
 /**
- * Web only: whether the on-screen keyboard is open, and how many pixels at
- * the bottom of the page it covers (`inset`). Always closed on phones' native
- * builds and on desktop.
- *
- * In the iPhone browser the page can keep its full height when the keyboard
- * opens - the keyboard just covers the bottom of it - so a form that fits
- * the screen has nothing to scroll and its lower fields stay hidden. Screens
- * pad their bottom by `inset`, which makes the form's scroll area end at the
- * top of the keyboard; the field being typed in is then scrolled into view.
+ * Web only: whether the on-screen keyboard is open (always closed on phones'
+ * native builds and on desktop). While it is, the app is pinned to the area
+ * above the keyboard (see pinAppToVisibleArea), so a form's lower fields can
+ * scroll into view; `inset` - the part of the app behind the keyboard - is
+ * therefore 0.
  */
 export function useWebKeyboard(): WebKeyboard {
   const [state, setState] = useState<WebKeyboard>(CLOSED);
@@ -97,7 +122,9 @@ export function useWebKeyboard(): WebKeyboard {
 
     const update = () => {
       const next = measureWebKeyboard();
-      setState((prev) => (prev.open === next.open && prev.inset === next.inset ? prev : next));
+      setState((prev) =>
+        prev.open === next.open && prev.inset === next.inset && prev.overlayInset === next.overlayInset ? prev : next
+      );
     };
     // Tapping another field while the keyboard is already open.
     const onFocusIn = () => {
@@ -122,16 +149,11 @@ export function useWebKeyboard(): WebKeyboard {
     };
   }, []);
 
-  // Keyboard opened (or changed height): the screen has re-rendered by the
-  // time this runs. An iPhone may have slid the whole page up to show the
-  // text box - put it back, since the screen now fits above the keyboard -
-  // then bring the box into view inside the form.
+  // Keyboard opened: the screen has re-rendered (pinned above the keyboard)
+  // by the time this runs - bring the text box into view inside its form.
   useEffect(() => {
     if (Platform.OS !== "web" || !state.open) return;
-    const frame = requestAnimationFrame(() => {
-      if (window.scrollY > 0 || (window.visualViewport?.offsetTop ?? 0) > 0) window.scrollTo(0, 0);
-      revealFocusedField();
-    });
+    const frame = requestAnimationFrame(revealFocusedField);
     // Again once the sign-in header has finished shrinking (a 220ms
     // transition), since that moves the text box.
     const settled = setTimeout(revealFocusedField, 280);
@@ -139,14 +161,19 @@ export function useWebKeyboard(): WebKeyboard {
       cancelAnimationFrame(frame);
       clearTimeout(settled);
     };
-  }, [state.open, state.inset]);
+  }, [state.open, state.overlayInset]);
 
   return state;
 }
 
-/** Web only: pixels of the page the keyboard covers (see useWebKeyboard). */
+/** Web only: pixels of the app behind the keyboard - 0 while it's pinned above it (see useWebKeyboard). */
 export function useWebKeyboardInset() {
   return useWebKeyboard().inset;
+}
+
+/** Web only: pixels of the screen the keyboard covers, for pop-ups (Modal) - see useWebKeyboard. */
+export function useWebKeyboardOverlayInset() {
+  return useWebKeyboard().overlayInset;
 }
 
 /**
