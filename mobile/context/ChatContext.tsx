@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { useAuth } from "./AuthContext";
 import { getAllPages } from "../lib/allPages";
 import axiosClient from "../lib/axiosClient";
+import { freshReplies } from "../lib/freshReplies";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -25,6 +26,9 @@ export type ChatMessage = {
   // A connection or server error shown in the chat. Never sent to the
   // backend as conversation context and never saved to History.
   isError?: boolean;
+  // On an error caused by the connection or the server (not by the message
+  // itself): the question to send again from the "Try again" button.
+  retryText?: string;
 };
 
 export type Office = { office_id: number; name: string };
@@ -56,6 +60,8 @@ type ChatContextValue = {
   selectedOffice: Office | null;
   setSelectedOffice: (office: Office | null) => void;
   sendMessage: (text: string) => Promise<void>;
+  // Sends a failed question again, replacing it and its error message.
+  retryMessage: (errorMessage: ChatMessage) => Promise<void>;
   submitFeedback: (logId: number, feedback: "up" | "down") => Promise<void>;
   requestStaffFollowUp: (ticketId: number) => Promise<boolean>;
   startNewChat: () => void;
@@ -135,17 +141,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const sendMessage = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || isSending) return;
-
+  // `base` replaces the chat before the question is added (used by retry,
+  // to drop the failed attempt); otherwise the question is appended.
+  const ask = async (trimmed: string, base: ChatMessage[] | null) => {
     // Earlier turns of this chat so the backend can tell a follow-up
     // ("is that all?") from a new, unanswerable question.
-    const history = realMessages(messages)
+    const history = realMessages(base ?? messages)
       .slice(-6)
       .map((m) => ({ role: m.role, text: m.text }));
 
-    setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
+    setMessages((prev) => [...(base ?? prev), { role: "user", text: trimmed }]);
     setIsSending(true);
     try {
       const { data } = await axiosClient.post(
@@ -160,9 +165,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // "Can't reach ChatDesk" while the server was still answering.
         { timeout: 45000 }
       );
-      setMessages((prev) => [
-        ...prev,
-        {
+      const reply: ChatMessage = {
           role: "assistant",
           text: data.reply,
           logId: data.log_id,
@@ -177,8 +180,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               }
             : {}),
           ...(data.suggested_questions?.length ? { suggestions: data.suggested_questions } : {}),
-        },
-      ]);
+        };
+      // Shown word by word once (see components/revealing-answer.tsx).
+      freshReplies.add(reply);
+      setMessages((prev) => [...prev, reply]);
     } catch (error: any) {
       const status = error.response?.status;
       const data = error.response?.data;
@@ -192,10 +197,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       } else if (status === 401) {
         text = "Your session expired. Please log in again.";
       }
-      setMessages((prev) => [...prev, { role: "assistant", text, isError: true }]);
+      // No reply at all, a timeout, a busy server or too many messages: the
+      // same question can simply be sent again.
+      const canRetry = !error.response || error.code === "ECONNABORTED" || status === 429 || status >= 500;
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text, isError: true, ...(canRetry ? { retryText: trimmed } : {}) },
+      ]);
     } finally {
       setIsSending(false);
     }
+  };
+
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isSending) return;
+    await ask(trimmed, null);
+  };
+
+  const retryMessage = async (errorMessage: ChatMessage) => {
+    const index = messages.indexOf(errorMessage);
+    if (isSending || !errorMessage.retryText || index < 0) return;
+    // Drop the error and the failed question just before it; ask again.
+    const failedQuestion = index - 1;
+    const base = messages.filter(
+      (message, i) =>
+        i !== index && !(i === failedQuestion && message.role === "user" && message.text === errorMessage.retryText)
+    );
+    await ask(errorMessage.retryText, base);
   };
 
   // "I still need help" on a ChatDesk answer: reopens that answer's ticket
@@ -271,6 +300,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         selectedOffice,
         setSelectedOffice,
         sendMessage,
+        retryMessage,
         submitFeedback,
         requestStaffFollowUp,
         startNewChat,

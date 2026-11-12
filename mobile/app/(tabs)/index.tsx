@@ -26,13 +26,15 @@ import { BotAvatar } from "../../components/bot-avatar";
 import { BrandTitle } from "../../components/brand-title";
 import { NavMenu } from "../../components/nav-menu";
 import { PressableScale } from "../../components/pressable-scale";
-import { FormattedAnswer } from "../../components/formatted-answer";
+import { RevealingAnswer } from "../../components/revealing-answer";
 import { TypingDots } from "../../components/typing-dots";
 import { useAuth } from "../../context/AuthContext";
 import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
 import axiosClient from "../../lib/axiosClient";
+import { freshReplies } from "../../lib/freshReplies";
 import { KEYBOARD_DISMISS_MODE, useWebKeyboard } from "../../lib/keyboard";
+import { MOTION } from "../../lib/motion";
 import { useTabBarHeight } from "../../lib/tabBar";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
 
@@ -58,6 +60,7 @@ export default function StudentChatScreen() {
     messages,
     isSending,
     sendMessage,
+    retryMessage,
     submitFeedback,
     requestStaffFollowUp,
     offices,
@@ -339,7 +342,7 @@ export default function StudentChatScreen() {
             animationType="none"
             onRequestClose={() => setIsCategoryPickerOpen(false)}
           >
-            <Animated.View entering={FadeIn.duration(150)} style={styles.categoryModalFill}>
+            <Animated.View entering={FadeIn.duration(MOTION.fast)} style={styles.categoryModalFill}>
             <Pressable style={styles.categoryModalBackdrop} onPress={() => setIsCategoryPickerOpen(false)}>
               <View style={styles.categoryModalSheet}>
                 <View style={styles.sheetHandle} />
@@ -404,7 +407,7 @@ export default function StudentChatScreen() {
           <View style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}>
             {messages.length === 0 ? (
               <Animated.View
-                entering={FadeIn.duration(400)}
+                entering={FadeIn.duration(MOTION.slow)}
                 style={styles.welcomeBlock}
                 onLayout={(e) => setWelcomeSpace(e.nativeEvent.layout.height)}
               >
@@ -447,7 +450,7 @@ export default function StudentChatScreen() {
                 {messages.map((item, index) => (
                   <Animated.View
                     key={index}
-                    entering={FadeInDown.duration(280)}
+                    entering={FadeInDown.duration(MOTION.base)}
                     onLayout={
                       index === messages.length - 1 && item.role === "assistant"
                         ? (e) => {
@@ -470,10 +473,35 @@ export default function StudentChatScreen() {
                       <View style={styles.assistantRow}>
                         <BotAvatar size={28} />
                         <View style={[styles.messageBubble, styles.messageBubbleAssistant]}>
-                          <FormattedAnswer text={item.text} style={styles.messageTextAssistant} />
+                          <RevealingAnswer
+                            text={item.text}
+                            animate={freshReplies.has(item)}
+                            onRevealed={() => freshReplies.done(item)}
+                            style={styles.messageTextAssistant}
+                          />
                         </View>
                       </View>
                     )}
+                    {/* Connection or server trouble: send the same question again. */}
+                    {item.isError && item.retryText ? (
+                      <View style={styles.feedbackRow}>
+                        <PressableScale
+                          style={styles.retryPill}
+                          onPress={() => {
+                            Haptics.selectionAsync().catch(() => {});
+                            retryMessage(item);
+                          }}
+                          disabled={isSending}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Try sending this question again"
+                          accessibilityState={{ disabled: isSending }}
+                        >
+                          <MaterialIcons name="refresh" size={15} color={colors.accentText} />
+                          <Text style={styles.needHelpText}>Try again</Text>
+                        </PressableScale>
+                      </View>
+                    ) : null}
                     {item.role === "assistant" && item.logId && item.canRate ? (
                       <View style={styles.feedbackRow}>
                         <PressableScale
@@ -588,14 +616,14 @@ export default function StudentChatScreen() {
                   </Animated.View>
                 ))}
                 {isSending ? (
-                  <Animated.View entering={FadeIn.duration(200)} style={styles.assistantRow}>
+                  <Animated.View entering={FadeIn.duration(MOTION.base)} style={styles.assistantRow}>
                     <BotAvatar size={28} />
                     <View>
                       <View style={[styles.messageBubble, styles.messageBubbleAssistant, styles.typingBubble]}>
                         <TypingDots color={colors.accentText} />
                       </View>
                       {waitingHint ? (
-                        <Animated.Text entering={FadeIn.duration(250)} style={styles.waitingHint} accessibilityLiveRegion="polite">
+                        <Animated.Text entering={FadeIn.duration(MOTION.base)} style={styles.waitingHint} accessibilityLiveRegion="polite">
                           {waitingHint}
                         </Animated.Text>
                       ) : null}
@@ -610,7 +638,7 @@ export default function StudentChatScreen() {
                 {suggestedQuestions.map((question, index) => (
                   <Animated.View
                     key={question}
-                    entering={isOfficeSwitch ? FadeIn.duration(160) : FadeInDown.delay(120 + index * 70).duration(320)}
+                    entering={isOfficeSwitch ? FadeIn.duration(MOTION.fast) : FadeInDown.delay(120 + index * 70).duration(MOTION.slow)}
                   >
                     <Pressable
                       style={({ pressed }) => [styles.suggestionCard, pressed && styles.suggestionCardPressed]}
@@ -928,6 +956,17 @@ const createStyles = (colors: ThemePalette) =>
     },
     needHelpPill: {
       marginLeft: "auto",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      minHeight: 30,
+      paddingHorizontal: 12,
+      borderRadius: 15,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    retryPill: {
       flexDirection: "row",
       alignItems: "center",
       gap: 5,
