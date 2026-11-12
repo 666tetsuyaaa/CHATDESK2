@@ -52,6 +52,29 @@ const MIN_KEYBOARD = 150;
 // pinned above it. overlayInset: how much of the screen the keyboard covers,
 // for pop-ups (React Native's Modal is drawn outside the app's root, so the
 // pinning doesn't move them - they lift their content by this much).
+// iPhones scroll *any* box around the text cursor to keep it in view - even
+// boxes that aren't meant to scroll (overflow hidden), such as the app's own
+// screen containers - which can leave a whole screen shifted inside the app.
+// Only real scroll areas (overflow auto/scroll: message lists, forms) may
+// scroll; anything else that gets scrolled is put straight back.
+let scrollGuardInstalled = false;
+function installScrollGuard() {
+  if (scrollGuardInstalled || typeof document === "undefined") return;
+  scrollGuardInstalled = true;
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      const box = event.target;
+      if (!(box instanceof HTMLElement) || box.scrollTop === 0 && box.scrollLeft === 0) return;
+      const { overflowX, overflowY } = getComputedStyle(box);
+      const scrollable = (value: string) => value === "auto" || value === "scroll";
+      if (!scrollable(overflowY) && box.scrollTop !== 0) box.scrollTop = 0;
+      if (!scrollable(overflowX) && box.scrollLeft !== 0) box.scrollLeft = 0;
+    },
+    true
+  );
+}
+
 function isTextField(element: EventTarget | null) {
   const tag = (element as HTMLElement | null)?.tagName;
   return tag === "INPUT" || tag === "TEXTAREA";
@@ -123,6 +146,7 @@ export function useWebKeyboard(): WebKeyboard {
   useEffect(() => {
     if (Platform.OS !== "web" || typeof window === "undefined" || !window.visualViewport) return;
     const viewport = window.visualViewport;
+    installScrollGuard();
 
     const update = () => {
       const next = measureWebKeyboard();

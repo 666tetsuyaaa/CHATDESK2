@@ -14,6 +14,33 @@ function enabled() {
   }
 }
 
+// Where the visible header is, and every box between it and the app's root
+// that is moved: scrolled, padded at the top, transformed, or not at top 0.
+function headerChain() {
+  // The one actually on screen (the other tabs keep their own, hidden).
+  const candidates = [...document.querySelectorAll('[aria-label="Open menu"]')] as HTMLElement[];
+  const header =
+    candidates.find((e) => {
+      const b = e.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return b.width > 0 && !!hit && e.contains(hit);
+    }) ?? candidates.find((e) => e.offsetParent !== null);
+  if (!header) return ["header -"];
+  const root = document.getElementById("root");
+  const lines = [`header top ${Math.round(header.getBoundingClientRect().top)}`];
+  for (let e: HTMLElement | null = header.parentElement; e && e !== root && lines.length < 7; e = e.parentElement) {
+    const cs = getComputedStyle(e);
+    const notes = [];
+    if (e.scrollTop) notes.push(`scroll ${e.scrollTop}`);
+    if (parseFloat(cs.paddingTop) > 4) notes.push(`padTop ${Math.round(parseFloat(cs.paddingTop))}`);
+    if (parseFloat(cs.marginTop) !== 0) notes.push(`marTop ${Math.round(parseFloat(cs.marginTop))}`);
+    if (cs.transform !== "none") notes.push(`transform ${cs.transform.slice(0, 40)}`);
+    if (cs.position === "absolute" || cs.position === "fixed") notes.push(`${cs.position} top ${cs.top} bottom ${cs.bottom}`);
+    if (notes.length) lines.push(`  ${e.tagName.toLowerCase()} y${Math.round(e.getBoundingClientRect().top)} h${e.clientHeight}: ${notes.join(", ")}`);
+  }
+  return lines;
+}
+
 function read() {
   const vv = window.visualViewport;
   const root = document.getElementById("root");
@@ -24,6 +51,7 @@ function read() {
     `visible h ${vv ? Math.round(vv.height) : "-"} top ${vv ? Math.round(vv.offsetTop) : "-"}  scrollY ${Math.round(window.scrollY)}`,
     `root ${root?.style.position || "static"} top ${rootBox ? Math.round(rootBox.top) : "-"} h ${rootBox ? Math.round(rootBox.height) : "-"}`,
     `focus ${active?.tagName ?? "-"}${active?.getAttribute("placeholder") ? ` (${active.getAttribute("placeholder")})` : ""}`,
+    ...headerChain(),
   ];
 }
 
