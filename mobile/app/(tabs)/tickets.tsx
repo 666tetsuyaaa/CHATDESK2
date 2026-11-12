@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,6 +31,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 import { getAllPages } from "../../lib/allPages";
 import { useWebKeyboardInset } from "../../lib/keyboard";
+import { useTabBarHeight } from "../../lib/tabBar";
 import axiosClient from "../../lib/axiosClient";
 import { formatDuration, formatManila, staffResolutionSeconds } from "../../lib/dates";
 import { countUnseen, hasUnreadStaffMessage, readJson, seenMessagesKey, seenTicketsKey } from "../../lib/ticketBadge";
@@ -103,6 +105,8 @@ export default function TicketsScreen() {
   // from the browser instead (see lib/keyboard.ts).
   const webKeyboardHeight = useWebKeyboardInset();
   const keyboardHeight = Platform.OS === "web" ? webKeyboardHeight : nativeKeyboardHeight;
+  // The tab bar floats over the list - leave room so the last row scrolls above it.
+  const tabBarSpace = { paddingBottom: useTabBarHeight() };
   const [seenMessages, setSeenMessages] = useState<Record<string, string>>({});
   const modalScrollRef = useRef<ScrollViewInstance>(null);
 
@@ -362,7 +366,7 @@ export default function TicketsScreen() {
 
       {loadFailed ? (
         <ScrollView
-          contentContainerStyle={styles.centerStateContainer}
+          contentContainerStyle={[styles.centerStateContainer, tabBarSpace]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
         >
           <Text style={styles.centerState}>
@@ -382,7 +386,7 @@ export default function TicketsScreen() {
         </View>
       ) : visibleTickets.length === 0 ? (
         <ScrollView
-          contentContainerStyle={styles.emptyStateContainer}
+          contentContainerStyle={[styles.emptyStateContainer, tabBarSpace]}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
         >
           <View style={styles.emptyIconCircle}>
@@ -413,6 +417,7 @@ export default function TicketsScreen() {
           <FlatList
             data={visibleTickets}
             keyExtractor={(ticket) => String(ticket.ticket_id)}
+            contentContainerStyle={tabBarSpace}
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.accentText} />}
             renderItem={({ item: ticket }) => {
               const isResolved = ticket.status === "resolved";
@@ -479,6 +484,9 @@ export default function TicketsScreen() {
           ]}
           onPress={closeTicket}
         >
+          {/* Frosted backdrop, like the side menu's. (No blur on Android -
+              just the dim tint, so it stays smooth.) */}
+          <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             {viewingTicket ? (
               <>
@@ -899,7 +907,8 @@ const createStyles = (colors: ThemePalette) =>
     viewButtonText: { fontFamily: "Montserrat_700Bold", fontSize: 13, color: colors.textPrimary },
     modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
+      // Lighter than the old 0.5 dim - the blur behind it does the rest.
+      backgroundColor: "rgba(0,0,0,0.3)",
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: 24,
