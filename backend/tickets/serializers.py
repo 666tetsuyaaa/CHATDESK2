@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from offices.models import Office
-from users.colleges import college_for_course
+from users.colleges import DELETED_STUDENT, college_for_course
 
 from .models import Ticket, TicketMessage
 
@@ -11,8 +11,10 @@ MESSAGE_MAX_LENGTH = 2000
 
 class TicketSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
-    user_email = serializers.EmailField(source="user.email", read_only=True)
-    student_course = serializers.CharField(source="user.course", read_only=True, default=None)
+    # Null once the student's account is deleted; the course is the one saved
+    # on the ticket, so it stays.
+    user_email = serializers.EmailField(source="user.email", read_only=True, default=None)
+    student_course = serializers.CharField(read_only=True, allow_null=True)
     student_college = serializers.SerializerMethodField()
     log_id = serializers.PrimaryKeyRelatedField(source="log", read_only=True)
     office_name = serializers.CharField(source="office.name", read_only=True, default=None)
@@ -38,7 +40,7 @@ class TicketSerializer(serializers.ModelSerializer):
         ]
 
     def get_student_college(self, ticket):
-        college = college_for_course(ticket.user.course)
+        college = college_for_course(ticket.student_course)
         return college["name"] if college else None
 
     def get_message_count(self, ticket):
@@ -129,6 +131,8 @@ class TicketMessageSerializer(serializers.ModelSerializer):
     def get_sender_name(self, message):
         if message.sender_role == TicketMessage.Sender.STUDENT:
             student = message.ticket.user
+            if student is None:
+                return DELETED_STUDENT
             return f"{student.first_name} {student.last_name}".strip()
         office = message.ticket.office
         viewer = self.context.get("viewer")

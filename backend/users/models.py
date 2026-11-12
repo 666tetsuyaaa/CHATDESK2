@@ -119,6 +119,20 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.email} ({self.role})"
 
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        course_may_change = self.pk is not None and (update_fields is None or "course" in update_fields)
+        old_course = (
+            User.objects.filter(pk=self.pk).values_list("course", flat=True).first() if course_may_change else None
+        )
+        super().save(*args, **kwargs)
+        # Chats and tickets keep a copy of the student's course (so analytics
+        # survive the account being deleted); keep it in step when an admin
+        # corrects the course.
+        if course_may_change and old_course != self.course:
+            self.inquiry_logs.update(student_course=self.course)
+            self.tickets.update(student_course=self.course)
+
 
 class PasswordResetCode(models.Model):
     """

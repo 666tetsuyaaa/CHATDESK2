@@ -344,7 +344,7 @@ export default function UserManagement() {
       <ConfirmDialog
         open={pendingDeleteUser !== null}
         title={`Delete ${pendingDeleteUser?.first_name ?? "this user"}?`}
-        message="This action cannot be undone."
+        message="Their account, name and email are removed for good. Their chats, tickets and announcements are kept for analytics, shown without their name. This can't be undone."
         isConfirming={isDeleting}
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeleteUser(null)}

@@ -222,7 +222,7 @@ export default function InquiryLogs() {
                 >
                   <td className="px-5 py-3.5">
                     <div className="max-w-[12rem] truncate text-sm font-medium">{log.user_name || "Student"}</div>
-                    <div className="max-w-[12rem] truncate text-xs text-gray-500" title={log.user_email}>{log.user_email}</div>
+                    <div className="max-w-[12rem] truncate text-xs text-gray-500" title={log.user_email ?? undefined}>{log.user_email}</div>
                   </td>
                   <td className="max-w-sm px-5 py-3.5">
                     <div className="truncate">{log.user_message}</div>

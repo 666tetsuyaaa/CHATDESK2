@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from offices.models import Office
-from users.colleges import college_for_course
+from users.colleges import DELETED_STUDENT, college_for_course
 
 from .models import (
     CLARIFICATION_INTENT,
@@ -35,7 +35,8 @@ def intent_label(intent, faq_questions):
 
 class InquiryLogSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
-    user_email = serializers.EmailField(source="user.email", read_only=True)
+    # Null (and the name "Deleted student") once the account is deleted.
+    user_email = serializers.EmailField(source="user.email", read_only=True, default=None)
     user_name = serializers.SerializerMethodField()
     intent_label = serializers.SerializerMethodField()
     office_name = serializers.CharField(source="office.name", read_only=True, default=None)
@@ -52,13 +53,15 @@ class InquiryLogSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_user_name(self, log):
+        if log.user is None:
+            return DELETED_STUDENT
         return f"{log.user.first_name} {log.user.last_name}".strip()
 
     def get_intent_label(self, log):
         return intent_label(log.detected_intent, self.context.get("faq_questions", {}))
 
     def get_student_college(self, log):
-        college = college_for_course(log.user.course)
+        college = college_for_course(log.student_course)
         return college["name"] if college else None
 
     def get_ticket_code(self, log):
