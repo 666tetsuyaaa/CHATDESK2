@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,6 +11,7 @@ import {
   Text,
   TextInput,
   View,
+  type TextInputInstance,
 } from "react-native";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router } from "expo-router";
@@ -54,6 +55,32 @@ export default function RegisterScreen() {
   const [isCoursePickerOpen, setIsCoursePickerOpen] = useState(false);
   const { register } = useAuth();
 
+  // The keyboard's Next key moves through the boxes in order.
+  const lastNameRef = useRef<TextInputInstance>(null);
+  const schoolIdRef = useRef<TextInputInstance>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
+
+  const FIELD_RULES: Record<string, (value: string) => string | null> = {
+    first_name: (value) => validatePersonName(value, "First name"),
+    last_name: (value) => validatePersonName(value, "Last name"),
+    school_id: validateSchoolId,
+    email: validateEmail,
+    password: validateNewPassword,
+  };
+  // Leaving a box checks it straight away (only once something was typed -
+  // an untouched box isn't a mistake yet; Sign Up still checks everything).
+  const checkOnLeave = (field: string, value: string) => {
+    if (!value.trim()) return;
+    setFieldErrors((prev) => ({ ...prev, [field]: FIELD_RULES[field](value) }));
+  };
+  // While a box shows an error, re-check it as it's corrected, so the error
+  // disappears as soon as the value is right.
+  const editField = (field: string, setValue: (value: string) => void) => (value: string) => {
+    setValue(value);
+    if (fieldErrors[field]) setFieldErrors((prev) => ({ ...prev, [field]: FIELD_RULES[field](value) }));
+  };
+
   const selectedCourseLabel = COURSE_OPTIONS.find((option) => option.value === course)?.label;
   const invalid = (field: string) => (fieldErrors[field] ? { borderColor: colors.errorRed } : null);
 
@@ -96,162 +123,208 @@ export default function RegisterScreen() {
       style={[styles.screen, keyboardInset ? { paddingBottom: keyboardInset } : null]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <AuthHeader whileTyping="hidden" />
-
       <ScrollView
-        contentContainerStyle={styles.sheet}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={KEYBOARD_DISMISS_MODE}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.heading}>Sign up</Text>
-        <Text style={styles.subheading}>Create your student account</Text>
+        {/* Inside the scroll area, so the header and the form scroll as one
+            page and the title never slides under the header. */}
+        <AuthHeader />
+        <View style={styles.sheet}>
+          <Text style={styles.heading}>Sign up</Text>
+          <Text style={styles.subheading}>Create your student account</Text>
 
-        <Text style={styles.label}>First name</Text>
-        <TextInput
-          style={[styles.input, invalid("first_name")]}
-          placeholder="Juan"
-          placeholderTextColor={colors.textMuted}
-          value={firstName}
-          onChangeText={setFirstName}
-          maxLength={150}
-        />
-        <FieldError message={fieldErrors.first_name} />
-
-        <Text style={styles.label}>Last name</Text>
-        <TextInput
-          style={[styles.input, invalid("last_name")]}
-          placeholder="Dela Cruz"
-          placeholderTextColor={colors.textMuted}
-          value={lastName}
-          onChangeText={setLastName}
-          maxLength={150}
-        />
-        <FieldError message={fieldErrors.last_name} />
-
-        <Text style={styles.label}>School ID</Text>
-        <TextInput
-          style={[styles.input, invalid("school_id")]}
-          placeholder="2026-00001"
-          placeholderTextColor={colors.textMuted}
-          keyboardType="numbers-and-punctuation"
-          value={schoolId}
-          onChangeText={setSchoolId}
-          maxLength={20}
-        />
-        <FieldError message={fieldErrors.school_id} />
-
-        <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={[styles.input, invalid("email")]}
-          placeholder="you@ustp.edu.ph"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <FieldError message={fieldErrors.email} />
-
-        <Text style={styles.label}>Password</Text>
-        <View style={[styles.passwordField, invalid("password")]}>
+          <Text style={styles.label}>First name</Text>
           <TextInput
-            style={styles.passwordInput}
-            placeholder="••••••••"
+            style={[styles.input, invalid("first_name")]}
+            placeholder="Juan"
             placeholderTextColor={colors.textMuted}
-            secureTextEntry={!isPasswordVisible}
-            value={password}
-            onChangeText={setPassword}
+            value={firstName}
+            onChangeText={editField("first_name", setFirstName)}
+            onBlur={() => checkOnLeave("first_name", firstName)}
+            maxLength={150}
+            autoCapitalize="words"
+            autoComplete="given-name"
+            textContentType="givenName"
+            returnKeyType="next"
+            submitBehavior="submit"
+            blurOnSubmit={false}
+            onSubmitEditing={() => lastNameRef.current?.focus()}
           />
-          <PressableScale
-            onPress={() => setIsPasswordVisible((prev) => !prev)}
-            hitSlop={10}
-            style={styles.eyeButton}
-            accessibilityRole="button"
-            accessibilityLabel={isPasswordVisible ? "Hide password" : "Show password"}
-          >
-            <MaterialIcons
-              name={isPasswordVisible ? "visibility-off" : "visibility"}
-              size={20}
-              color={colors.textMuted}
+          <FieldError message={fieldErrors.first_name} />
+
+          <Text style={styles.label}>Last name</Text>
+          <TextInput
+            style={[styles.input, invalid("last_name")]}
+            ref={lastNameRef}
+            placeholder="Dela Cruz"
+            placeholderTextColor={colors.textMuted}
+            value={lastName}
+            onChangeText={editField("last_name", setLastName)}
+            onBlur={() => checkOnLeave("last_name", lastName)}
+            maxLength={150}
+            autoCapitalize="words"
+            autoComplete="family-name"
+            textContentType="familyName"
+            returnKeyType="next"
+            submitBehavior="submit"
+            blurOnSubmit={false}
+            onSubmitEditing={() => schoolIdRef.current?.focus()}
+          />
+          <FieldError message={fieldErrors.last_name} />
+
+          <Text style={styles.label}>School ID</Text>
+          <TextInput
+            style={[styles.input, invalid("school_id")]}
+            ref={schoolIdRef}
+            placeholder="2023304440"
+            placeholderTextColor={colors.textMuted}
+            // Number keyboard. The iPhone app uses the one with a number row
+            // and a Next key (the plain iPhone number pad has no Next key).
+            keyboardType={Platform.OS === "ios" ? "numbers-and-punctuation" : "number-pad"}
+            value={schoolId}
+            onChangeText={editField("school_id", setSchoolId)}
+            onBlur={() => checkOnLeave("school_id", schoolId)}
+            maxLength={20}
+            autoComplete="off"
+            textContentType="none"
+            returnKeyType="next"
+            submitBehavior="submit"
+            blurOnSubmit={false}
+            onSubmitEditing={() => emailRef.current?.focus()}
+          />
+          <FieldError message={fieldErrors.school_id} />
+
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={[styles.input, invalid("email")]}
+            ref={emailRef}
+            placeholder="you@ustp.edu.ph"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            autoComplete="email"
+            textContentType="emailAddress"
+            value={email}
+            onChangeText={editField("email", setEmail)}
+            onBlur={() => checkOnLeave("email", email)}
+            returnKeyType="next"
+            submitBehavior="submit"
+            blurOnSubmit={false}
+            onSubmitEditing={() => passwordRef.current?.focus()}
+          />
+          <FieldError message={fieldErrors.email} />
+
+          <Text style={styles.label}>Password</Text>
+          <View style={[styles.passwordField, invalid("password")]}>
+            <TextInput
+              style={styles.passwordInput}
+              ref={passwordRef}
+              placeholder="••••••••"
+              placeholderTextColor={colors.textMuted}
+              secureTextEntry={!isPasswordVisible}
+              value={password}
+              onChangeText={editField("password", setPassword)}
+              onBlur={() => checkOnLeave("password", password)}
+              // Lets the phone suggest (and save) a strong password.
+              autoComplete="new-password"
+              textContentType="newPassword"
+              passwordRules="minlength: 8; required: lower; required: digit;"
+              returnKeyType="done"
             />
+            <PressableScale
+              onPress={() => setIsPasswordVisible((prev) => !prev)}
+              hitSlop={10}
+              style={styles.eyeButton}
+              accessibilityRole="button"
+              accessibilityLabel={isPasswordVisible ? "Hide password" : "Show password"}
+            >
+              <MaterialIcons
+                name={isPasswordVisible ? "visibility-off" : "visibility"}
+                size={20}
+                color={colors.textMuted}
+              />
+            </PressableScale>
+          </View>
+          <FieldError message={fieldErrors.password} />
+
+          <Text style={styles.label}>Course</Text>
+          <PressableScale pressedScale={0.98}
+            style={styles.pickerWrapper}
+            onPress={() => setIsCoursePickerOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Course: ${selectedCourseLabel}`}
+          >
+            <Text style={styles.pickerValueText}>{selectedCourseLabel}</Text>
+            <MaterialIcons name="expand-more" size={20} color={colors.textMuted} />
+          </PressableScale>
+
+          <Modal
+            visible={isCoursePickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setIsCoursePickerOpen(false)}
+          >
+            <Pressable style={styles.modalBackdrop} onPress={() => setIsCoursePickerOpen(false)}>
+              <View style={styles.modalSheet}>
+                <FlatList
+                  data={COURSE_OPTIONS}
+                  keyExtractor={(option) => option.value}
+                  renderItem={({ item }) => (
+                    <PressableScale pressedScale={0.98}
+                      style={styles.modalOption}
+                      onPress={() => {
+                        setCourse(item.value);
+                        setIsCoursePickerOpen(false);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                    >
+                      <Text
+                        style={[
+                          styles.modalOptionText,
+                          item.value === course && styles.modalOptionTextSelected,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </PressableScale>
+                  )}
+                />
+              </View>
+            </Pressable>
+          </Modal>
+
+          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+          <PressableScale
+            style={styles.button}
+            onPress={handleRegister}
+            disabled={isSubmitting}
+            accessibilityRole="button"
+            accessibilityLabel="Sign up"
+            accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.buttonText}>Sign Up</Text>
+            )}
+          </PressableScale>
+
+          <PressableScale
+            onPress={() => router.push("/login")}
+            accessibilityRole="button"
+            accessibilityLabel="Already have an account? Log in here"
+          >
+            <Text style={styles.signupText}>
+              Already have an account? <Text style={styles.signupLink}>Log in here</Text>
+            </Text>
           </PressableScale>
         </View>
-        <FieldError message={fieldErrors.password} />
-
-        <Text style={styles.label}>Course</Text>
-        <PressableScale pressedScale={0.98}
-          style={styles.pickerWrapper}
-          onPress={() => setIsCoursePickerOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={`Course: ${selectedCourseLabel}`}
-        >
-          <Text style={styles.pickerValueText}>{selectedCourseLabel}</Text>
-          <MaterialIcons name="expand-more" size={20} color={colors.textMuted} />
-        </PressableScale>
-
-        <Modal
-          visible={isCoursePickerOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setIsCoursePickerOpen(false)}
-        >
-          <Pressable style={styles.modalBackdrop} onPress={() => setIsCoursePickerOpen(false)}>
-            <View style={styles.modalSheet}>
-              <FlatList
-                data={COURSE_OPTIONS}
-                keyExtractor={(option) => option.value}
-                renderItem={({ item }) => (
-                  <PressableScale pressedScale={0.98}
-                    style={styles.modalOption}
-                    onPress={() => {
-                      setCourse(item.value);
-                      setIsCoursePickerOpen(false);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={item.label}
-                  >
-                    <Text
-                      style={[
-                        styles.modalOptionText,
-                        item.value === course && styles.modalOptionTextSelected,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                  </PressableScale>
-                )}
-              />
-            </View>
-          </Pressable>
-        </Modal>
-
-        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-
-        <PressableScale
-          style={styles.button}
-          onPress={handleRegister}
-          disabled={isSubmitting}
-          accessibilityRole="button"
-          accessibilityLabel="Sign up"
-          accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color={colors.white} />
-          ) : (
-            <Text style={styles.buttonText}>Sign Up</Text>
-          )}
-        </PressableScale>
-
-        <PressableScale
-          onPress={() => router.push("/login")}
-          accessibilityRole="button"
-          accessibilityLabel="Already have an account? Log in here"
-        >
-          <Text style={styles.signupText}>
-            Already have an account? <Text style={styles.signupLink}>Log in here</Text>
-          </Text>
-        </PressableScale>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -260,6 +333,7 @@ export default function RegisterScreen() {
 const createStyles = (colors: ThemePalette) =>
   StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.surface },
+    scrollContent: { flexGrow: 1 },
     sheet: {
       flexGrow: 1,
       paddingHorizontal: 28,

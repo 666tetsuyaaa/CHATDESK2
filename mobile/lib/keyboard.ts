@@ -132,7 +132,13 @@ export function useWebKeyboard(): WebKeyboard {
       if (window.scrollY > 0 || (window.visualViewport?.offsetTop ?? 0) > 0) window.scrollTo(0, 0);
       revealFocusedField();
     });
-    return () => cancelAnimationFrame(frame);
+    // Again once the sign-in header has finished shrinking (a 220ms
+    // transition), since that moves the text box.
+    const settled = setTimeout(revealFocusedField, 280);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(settled);
+    };
   }, [state.open, state.inset]);
 
   return state;
