@@ -1,3 +1,5 @@
+from django.core.management import call_command
+from io import StringIO
 from config.testing import BaseAPITestCase
 from inquiry_logs.models import InquiryLog
 from users.models import User
@@ -62,3 +64,49 @@ class PopularFaqTests(BaseAPITestCase):
         response = superadmin.post("/api/v1/faqs/", faq_payload(intent_keyword="lost school id"), format="json")
         self.assertEqual(response.status_code, 400)
         self.assertIn("intent_keyword", response.data["details"])
+
+
+class ImportFaqsCommandTests(BaseAPITestCase):
+    """manage.py import_faqs: the FAQ master list loader."""
+
+    def setUp(self):
+        super().setUp()
+        import json
+        import tempfile
+        from offices.models import Office
+
+        self.osa, _ = Office.objects.get_or_create(code="OSA", defaults={"name": "Office of Student Affairs (OSA)"})
+        Faq.objects.create(intent_keyword="test_placeholder", question_text="Old?", answer_content="An old placeholder answer.", category="General")
+        Faq.objects.create(intent_keyword="old_placeholder", question_text="Older?", answer_content="An older placeholder answer.", category="General")
+        Faq.objects.create(intent_keyword="staff_added", question_text="Staff?", answer_content="Added by staff in the dashboard.", category="General")
+        rows = [
+            {"intent_keyword": "get_school_id", "question_text": "How do I get my school ID?", "answer_content": "Go to the OSA office with your COR.", "category": "Clearance", "office_code": "OSA"},
+            {"intent_keyword": "dorm_curfew", "question_text": "What is the dorm curfew?", "answer_content": "Ask the dorm manager for the curfew.", "category": "General", "office_code": "XYZ"},
+        ]
+        self.file = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump(rows, self.file)
+        self.file.close()
+
+    def run_import(self, *args):
+        out = StringIO()
+        call_command("import_faqs", "--file", self.file.name, *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_changes_nothing(self):
+        output = self.run_import()
+        self.assertIn("add:       2", output)
+        self.assertIn("Dry run", output)
+        self.assertEqual(Faq.objects.count(), 3)
+
+    def test_apply_adds_removes_test_faqs_and_keeps_others(self):
+        output = self.run_import("--apply", "--remove", "old_placeholder")
+        self.assertIn("offices not found in ChatDesk (those FAQs get no office): XYZ", output)
+        self.assertEqual(
+            sorted(Faq.objects.values_list("intent_keyword", flat=True)),
+            ["dorm_curfew", "get_school_id", "staff_added"],
+        )
+        self.assertEqual(Faq.objects.get(intent_keyword="get_school_id").office, self.osa)
+        self.assertIsNone(Faq.objects.get(intent_keyword="dorm_curfew").office)
+        # Running it again changes nothing.
+        self.assertIn("unchanged: 2", self.run_import("--apply"))
+        self.assertEqual(Faq.objects.count(), 3)
