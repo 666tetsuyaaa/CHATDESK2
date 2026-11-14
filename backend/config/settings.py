@@ -73,7 +73,13 @@ def _database_from_url(url):
     """A DATABASES entry from a postgres:// URL (Neon in production).
     Neon's pooled address ("-pooler") runs PgBouncer in transaction mode,
     which can't keep Django's server-side cursors open between queries."""
-    database = dj_database_url.parse(url, conn_max_age=0, conn_health_checks=True)
+    # Connections are kept for a minute and reused by the next requests:
+    # opening one to Neon (TLS + login) on every request added a noticeable
+    # delay to each page of the admin dashboard. Health checks drop one that
+    # Neon closed in the meantime.
+    database = dj_database_url.parse(
+        url, conn_max_age=config("DB_CONN_MAX_AGE", default=60, cast=int), conn_health_checks=True
+    )
     # Give up on a stuck connection instead of hanging the request.
     database.setdefault("OPTIONS", {})["connect_timeout"] = 10
     if "-pooler" in url:

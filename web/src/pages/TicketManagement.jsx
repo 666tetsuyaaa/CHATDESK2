@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { getTicket, getTicketMessages, getTickets, sendTicketMessage, updateTicket } from "../api/tickets.js";
+import { getTicket, getTicketCounts, getTicketMessages, getTickets, sendTicketMessage, updateTicket } from "../api/tickets.js";
 import { getOffices } from "../api/offices.js";
 import FieldError, { invalidInput } from "../components/FieldError.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
@@ -93,21 +93,15 @@ export default function TicketManagement() {
   // Stat tiles reflect true totals regardless of the active filters - the
   // staff tiles count only tickets that needed (or need) a person; chatbot
   // answers have their own tile. Office-admin scoping still applies.
+  // One request for all five tiles (it used to be five ticket lists).
   const loadCounts = () => {
-    const count = (res) => res.data.count ?? (res.data.results ?? res.data).length;
-    Promise.all([
-      getTickets({ page: 1, source: "staff" }),
-      getTickets({ page: 1, source: "staff", status: "pending" }),
-      getTickets({ page: 1, source: "staff", status: "resolved" }),
-      getTickets({ page: 1, source: "ai" }),
-      getTickets({ page: 1, overdue: "true" }),
-    ])
-      .then(([all, pending, resolved, ai, overdue]) => {
-        setAllCount(count(all));
-        setPendingCount(count(pending));
-        setResolvedCount(count(resolved));
-        setAiCount(count(ai));
-        setOverdueCount(count(overdue));
+    getTicketCounts()
+      .then(({ data }) => {
+        setAllCount(data.staff);
+        setPendingCount(data.pending);
+        setResolvedCount(data.resolved);
+        setAiCount(data.ai);
+        setOverdueCount(data.overdue);
       })
       .catch(() => {});
   };

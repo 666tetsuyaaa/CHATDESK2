@@ -1,8 +1,11 @@
 import axios from "axios";
+import { cachingAdapter } from "./responseCache.js";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
 
-const axiosClient = axios.create({ baseURL: BASE_URL });
+// cachingAdapter: sections opened again show what was loaded before at once
+// (see responseCache.js).
+const axiosClient = axios.create({ baseURL: BASE_URL, adapter: cachingAdapter });
 
 // Attach the access token to every outgoing request.
 axiosClient.interceptors.request.use((requestConfig) => {

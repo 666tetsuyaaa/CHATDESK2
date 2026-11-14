@@ -13,6 +13,10 @@
 //    in app/+html.tsx: with this Expo version, any custom +html.tsx stops the
 //    export from adding the app's <script> tags, leaving a blank page.)
 //
+// 3. Puts scripts/web-compat.js in every page, before the app: fallbacks for
+//    a few features older phones lack, and a "Please update your browser"
+//    message on browsers too old to run the app.
+//
 // Usage: node scripts/finish-web-export.mjs [output folder, default "dist"]
 import { existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -32,6 +36,10 @@ const HEAD_TAGS = [
   '<meta name="mobile-web-app-capable" content="yes"/>',
   '<link rel="apple-touch-icon" href="/apple-touch-icon.png"/>',
 ].join("");
+
+// Kept as is: a "</script>" inside would end the inline script early.
+const COMPAT_SCRIPT = readFileSync(new URL("./web-compat.js", import.meta.url), "utf8");
+if (COMPAT_SCRIPT.includes("</script")) throw new Error("web-compat.js must not contain </script");
 
 const OLD_ASSET_PATH = "/assets/node_modules/";
 const NEW_ASSET_PATH = "/assets/vendor/";
@@ -70,12 +78,17 @@ if (existsSync(oldDir)) {
   }
 }
 
-// 2. iPhone name, icon and viewport on every page.
+// 2 and 3. iPhone name, icon and viewport, and the compatibility script, on every page.
 let pages = 0;
 for (const file of files(outDir, /\.html$/)) {
   let html = readFileSync(file, "utf8");
   if (html.includes('name="apple-mobile-web-app-title"')) continue; // already done
-  html = html.replace(/<meta name="viewport" content="[^"]*"\s*\/?>/, `<meta name="viewport" content="${VIEWPORT}"/>`);
+  html = html.replace(
+    /<meta name="viewport" content="[^"]*"\s*\/?>/,
+    // The compatibility script first, before anything of the app's. (A
+    // function, so a "$" in the script is never read as a replace pattern.)
+    () => `<meta name="viewport" content="${VIEWPORT}"/><script>${COMPAT_SCRIPT}</script>`
+  );
   html = html.replace(/<title>[^<]*<\/title>/, "");
   html = html.replace("</head>", `${HEAD_TAGS}</head>`);
   writeFileSync(file, html);

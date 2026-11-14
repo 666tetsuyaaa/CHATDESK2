@@ -50,6 +50,7 @@ sudo cp "$APP_DIR/deploy/aws/chatdesk.service" /etc/systemd/system/chatdesk.serv
 if ! sudo grep -q "managed by Certbot" /etc/nginx/sites-available/chatdesk 2>/dev/null; then
     sudo cp "$APP_DIR/deploy/aws/nginx-chatdesk.conf" /etc/nginx/sites-available/chatdesk
 fi
+sudo cp "$APP_DIR/deploy/aws/nginx-speed.conf" /etc/nginx/conf.d/chatdesk-speed.conf
 sudo ln -sf /etc/nginx/sites-available/chatdesk /etc/nginx/sites-enabled/chatdesk
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t

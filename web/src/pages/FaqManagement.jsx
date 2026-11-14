@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFaq, deleteFaq, getFaqs, updateFaq } from "../api/faqs.js";
+import { createFaq, deleteFaq, getFaqCategoryCounts, getFaqs, updateFaq } from "../api/faqs.js";
 import { getOffices } from "../api/offices.js";
 import FaqFormModal, { CATEGORIES } from "../components/FaqFormModal.jsx";
 import Pagination from "../components/Pagination.jsx";
@@ -45,11 +45,11 @@ export default function FaqManagement() {
       .finally(() => setIsLoading(false));
   };
 
+  // One request for every category's count (it used to be a list per category).
   const loadCategoriesInUse = () => {
-    Promise.all(CATEGORIES.map((category) => getFaqs({ page: 1, category })))
-      .then((results) => {
-        const inUse = results.filter((res) => (res.data.count ?? (res.data.results ?? res.data).length) > 0);
-        setCategoriesInUse(inUse.length);
+    getFaqCategoryCounts()
+      .then(({ data }) => {
+        setCategoriesInUse(data.filter((row) => CATEGORIES.includes(row.category) && row.count > 0).length);
       })
       .catch(() => {});
   };

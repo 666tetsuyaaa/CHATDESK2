@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 
 from config.query_params import id_param, office_param
 from inquiry_logs.models import InquiryLog
+from users.permissions import IsOfficeStaff
 
 from .models import Faq
 from .permissions import IsAdminOrReadOnly
@@ -108,3 +109,17 @@ class FaqDetailView(generics.RetrieveUpdateDestroyAPIView):
         if user.role == user.Role.OFFICE_ADMIN:
             extra["office"] = user.office
         serializer.save(**extra)
+
+class FaqCategoryCountsView(APIView):
+    """GET /api/v1/faqs/categories/ - superadmin or office_admin. How many
+    FAQs each category has, in one request (the FAQ page used to fetch a
+    list per category just to count them). Office Admins: their office's."""
+
+    permission_classes = [IsOfficeStaff]
+
+    def get(self, request):
+        qs = Faq.objects.all()
+        if request.user.role == request.user.Role.OFFICE_ADMIN:
+            qs = qs.filter(office=request.user.office)
+        rows = qs.values("category").annotate(count=Count("pk")).order_by("category")
+        return Response([{"category": row["category"], "count": row["count"]} for row in rows])
