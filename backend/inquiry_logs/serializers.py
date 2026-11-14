@@ -4,11 +4,13 @@ from offices.models import Office
 from users.colleges import DELETED_STUDENT, college_for_course
 
 from .models import (
+    ACCOUNT_INFO_INTENT,
     CLARIFICATION_INTENT,
     CONVERSATIONAL_INTENT,
     DUPLICATE_TICKET_INTENT,
     ESCALATED_INTENT,
     OFF_TOPIC_INTENT,
+    STAFF_REQUEST_INTENT,
     UNCLEAR_INTENT,
     InquiryLog,
 )
@@ -22,6 +24,8 @@ INTENT_LABELS = {
     CLARIFICATION_INTENT: "Asked to clarify",
     OFF_TOPIC_INTENT: "Off-topic",
     UNCLEAR_INTENT: "Unclear message",
+    ACCOUNT_INFO_INTENT: "Asked about their account",
+    STAFF_REQUEST_INTENT: "Asked for staff (pointed to Still need help)",
 }
 
 

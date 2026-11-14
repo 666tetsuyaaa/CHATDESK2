@@ -238,7 +238,8 @@ DELETE,/api/v1/faqs/{faq_id}/,admin,Remove obsolete FAQ.
 # underscores, no spaces; unique ignoring capitals ("Enrollment" is refused
 # when "enrollment" exists); and not one of the chatbot's own outcome names
 # (unresolved_complex_query, duplicate_ticket, conversational,
-# needs_clarification, off_topic, unclear). question_text: max 300. All
+# needs_clarification, off_topic, unclear, account_info, asked_for_staff).
+# question_text: max 300. All
 # return 400 under the field name.
 
 ## Chat Interaction & Inquiry Logging
@@ -298,6 +299,16 @@ Response 201 (AI Failed, Ticket Escalation Triggered):
 #                           questions to offer as buttons (sending one verbatim is answered directly)
 #   off_topic             - not about school - short scope reply, no ticket
 #   unclear               - gibberish - asks to rephrase, no ticket
+#   account_info          - "who am I?" / "what's my School ID?": answered from the
+#                           asking student's own account (name and course by default;
+#                           School ID or email only when asked for). The AI only says
+#                           which details were asked - it never sees them. Asking for
+#                           another person's details gets a privacy reply. No ticket.
+#   asked_for_staff       - the message only asks for staff/a ticket or says the answer
+#                           was wrong: points to "Still need help?" (which reopens that
+#                           answer's ticket), no new ticket. Ticket requests inside a
+#                           question ("What is HIMS? Produce a ticket.") are ignored and
+#                           the question is answered normally.
 #   unresolved_complex_query - new ticket created (201)
 #   duplicate_ticket      - same concern as one of the student's open tickets (200);
 #                           no new ticket, ticket_id/ticket_code/ticket_title point to the existing one
