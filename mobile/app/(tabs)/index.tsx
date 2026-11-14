@@ -99,8 +99,17 @@ export default function StudentChatScreen() {
   const scrollViewRef = useRef<ScrollViewInstance>(null);
   // A reply taller than most of the screen is shown from its top, not its
   // end - the first steps of a long FAQ answer are the ones to read first.
+  // A message asking several things gets several replies - the same applies
+  // to all of them together, starting from the first.
   const listHeightRef = useRef(0);
   const longReplyIndexRef = useRef<number | null>(null);
+  const replyLayoutsRef = useRef<{ start: number; layouts: Record<number, { y: number; height: number }> }>({
+    start: -1,
+    layouts: {},
+  });
+  // Index of the first reply to the latest question (messages.length while
+  // that question is still waiting for its answer).
+  const replyBatchStart = messages.map((m) => m.role).lastIndexOf("user") + 1;
   const [waitSeconds, setWaitSeconds] = useState(0);
   const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>(FALLBACK_SUGGESTED_QUESTIONS);
 
@@ -497,7 +506,7 @@ export default function StudentChatScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={KEYBOARD_DISMISS_MODE}
                 onContentSizeChange={() => {
-                  if (longReplyIndexRef.current === messages.length - 1 && !isSending) return;
+                  if (longReplyIndexRef.current === replyBatchStart && !isSending) return;
                   scrollViewRef.current?.scrollToEnd({ animated: true });
                 }}
                 // Fires when the keyboard (or a growing input) shrinks the
@@ -512,13 +521,25 @@ export default function StudentChatScreen() {
                     key={index}
                     entering={FadeInDown.duration(MOTION.base)}
                     onLayout={
-                      index === messages.length - 1 && item.role === "assistant"
+                      index >= replyBatchStart && item.role === "assistant"
                         ? (e) => {
-                            const { y, height } = e.nativeEvent.layout;
-                            if (height > listHeightRef.current * 0.75 && longReplyIndexRef.current !== index) {
-                              longReplyIndexRef.current = index;
+                            // The replies to the latest question (one per
+                            // question asked): when together they're taller
+                            // than most of the screen, start at the first.
+                            const batch = replyLayoutsRef.current;
+                            if (batch.start !== replyBatchStart) {
+                              replyLayoutsRef.current = { start: replyBatchStart, layouts: {} };
+                            }
+                            const { layouts } = replyLayoutsRef.current;
+                            layouts[index] = e.nativeEvent.layout;
+                            const first = layouts[replyBatchStart];
+                            const last = layouts[messages.length - 1];
+                            if (!first || !last) return;
+                            const height = last.y + last.height - first.y;
+                            if (height > listHeightRef.current * 0.75 && longReplyIndexRef.current !== replyBatchStart) {
+                              longReplyIndexRef.current = replyBatchStart;
                               requestAnimationFrame(() =>
-                                scrollViewRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true })
+                                scrollViewRef.current?.scrollTo({ y: Math.max(0, first.y - 8), animated: true })
                               );
                             }
                           }
@@ -533,6 +554,8 @@ export default function StudentChatScreen() {
                       <View style={styles.assistantRow}>
                         <BotAvatar size={28} />
                         <View style={[styles.messageBubble, styles.messageBubbleAssistant]}>
+                          {/* Which question this answers, when one message asked several. */}
+                          {item.question ? <Text style={styles.answerQuestion}>{item.question}</Text> : null}
                           <RevealingAnswer
                             text={item.text}
                             animate={freshReplies.has(item)}
@@ -670,8 +693,8 @@ export default function StudentChatScreen() {
                         </Pressable>
                       </View>
                     ) : null}
-                    {/* Only on the latest reply - older suggestions are stale once the student moves on. */}
-                    {item.suggestions && index === messages.length - 1 && !isSending ? (
+                    {/* Only on the replies to the latest question - older suggestions are stale once the student moves on. */}
+                    {item.suggestions && index >= replyBatchStart && !isSending ? (
                       <View style={[styles.chipsRow, styles.clarifyChipsRow]}>
                         {item.suggestions.map((question) => (
                           <Pressable
@@ -1009,6 +1032,13 @@ const createStyles = (colors: ThemePalette) =>
       fontFamily: "Montserrat_400Regular",
       fontSize: 15,
       lineHeight: 22,
+    },
+    answerQuestion: {
+      color: colors.accentText,
+      fontFamily: "Montserrat_700Bold",
+      fontSize: 13,
+      lineHeight: 18,
+      marginBottom: 4,
     },
     feedbackRow: {
       flexDirection: "row",

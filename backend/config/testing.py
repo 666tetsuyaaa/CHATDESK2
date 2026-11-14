@@ -72,14 +72,21 @@ class FakeOpenAI:
         if self.error is not None:
             raise self.error
         decision = self.decisions.pop(0) if len(self.decisions) > 1 else self.decisions[0]
-        content = json.dumps({
-            "message_type": "needs_staff",
-            "matched_intent_keyword": None,
-            "match_confidence": "none",
-            "candidate_intent_keywords": [],
-            "requested_details": [],
-            "duplicate_of_ticket_id": None,
-            "ticket_title": "Test Concern",
-            **decision,
-        })
+        # A decision is one question's fields, or {"questions": [...]} for a
+        # message that asks several things.
+        questions = decision["questions"] if "questions" in decision else [decision]
+        content = json.dumps({"questions": [
+            {
+                "question": "",
+                "message_type": "needs_staff",
+                "matched_intent_keyword": None,
+                "match_confidence": "none",
+                "candidate_intent_keywords": [],
+                "requested_details": [],
+                "duplicate_of_ticket_id": None,
+                "ticket_title": "Test Concern",
+                **question,
+            }
+            for question in questions
+        ]})
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])

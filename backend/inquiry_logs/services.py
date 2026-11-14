@@ -60,6 +60,10 @@ OTHER_PERSON_REPLY = (
     "Is there something about your own account or a school concern I can help with?"
 )
 
+MORE_QUESTIONS_NOTE = (
+    "I answered your first 3 questions. Please send the rest in a new message so I can answer each one."
+)
+
 ACCOUNT_DETAILS = ("name", "course", "school_id", "email")
 
 CLARIFY_WITH_SUGGESTIONS_REPLY = (
@@ -99,6 +103,9 @@ POLITE_SUFFIX = re.compile(r"\s+(po|poh|din|rin)$")
 
 TICKET_TITLE_MAX_LENGTH = 60
 MAX_CLARIFY_SUGGESTIONS = 3
+# Questions answered from one message; more get MORE_QUESTIONS_NOTE.
+MAX_QUESTIONS = 3
+QUESTION_MAX_LENGTH = 300
 MAX_OPEN_TICKETS_IN_PROMPT = 5
 # Enough of each answer for the classifier to know what an FAQ actually
 # covers, not just how its question happens to be worded.
@@ -135,7 +142,16 @@ Knowledge base (FAQ intents - each with its question and a preview of the answer
 The student's open support tickets:
 {open_tickets}
 
-Decide message_type by checking these in order and picking the FIRST that fits:
+A message can ask more than one thing. In "questions", list each separate question or concern in the \
+order asked - usually just one. Split only when the student asks two or more different things that need \
+different answers ("What is HIMS and how do I create an account?" is two). Never split one concern explained \
+over several sentences, a greeting or thanks around a question, or an instruction to ChatDesk (ignored, as \
+above). For each one, "question" is that question in the student's own words and language, changed only \
+enough to make sense on its own ("how do I create an account?" becomes "How do I create a HIMS account?"). \
+Then classify each one with the rules below as if it were the only thing asked. List every question asked, \
+however many there are.
+
+For each question, decide message_type by checking these in order and picking the FIRST that fits:
 
 1. "unclear" - no understandable meaning even with context: random letters, keyboard mashing ("asdfgh"), a \
 lone symbol, or text too broken to read.
@@ -343,124 +359,8 @@ def _staff_result(message, ticket_title, open_tickets, duplicate_id=None) -> dic
     return _escalation_result(_clean_ticket_title(ticket_title))
 
 
-def classify_message(message: str, office=None, history=None, user=None) -> dict:
-    """
-    Decides how to handle one student message. Returns detected_intent and
-    reply, plus ticket_title when a new ticket should be created,
-    existing_ticket when it repeats an open one, or suggested_questions when
-    asking the student to clarify.
-
-    office: the Office picked in the mobile category selector (optional) -
-    narrows the FAQ pool to that office's FAQs plus uncategorized ones, and
-    routes any resulting ticket to it.
-    history: the current chat's earlier turns ([{"role", "text"}], oldest
-    first) so follow-ups are understood in context.
-    user: the asking student, used to avoid duplicate tickets.
-    """
-    # "f", "?", "..." - nothing to classify, so skip the AI call entirely.
-    if sum(ch.isalnum() for ch in message) < 2:
-        return UNCLEAR_RESULT
-
-    if _is_small_talk(message):
-        return _conversational_result(user, history)
-
-    open_tickets = _open_tickets_for(user)
-
-    # Embeddings (about 30 KB each) are read only by smart matching, from its cache.
-    candidate_faqs = Faq.objects.defer("embedding", "embedding_text")
-    if office is not None:
-        candidate_faqs = candidate_faqs.filter(models.Q(office=office) | models.Q(office__isnull=True))
-    faqs_by_keyword = {faq.intent_keyword: faq for faq in candidate_faqs}
-    if not faqs_by_keyword:
-        return _staff_result(message, None, open_tickets)
-
-    # Quick actions and clarification chips send an FAQ's question verbatim -
-    # answer those directly: always correct, consistent, and no AI call.
-    normalized_message = _normalize_question(message)
-    for faq in faqs_by_keyword.values():
-        if _normalize_question(faq.question_text) == normalized_message:
-            return _faq_result(faq)
-
-    # A clear match by meaning is answered straight away; anything less
-    # clear goes on to the classifier, which can also ask "did you mean...?".
-    clear_faq = matching.clear_match(_client, message, list(faqs_by_keyword.values()), history)
-    if clear_faq is not None:
-        return _faq_result(clear_faq)
-
-    def answer_preview(faq):
-        text = " ".join(faq.answer_content.split())
-        return text if len(text) <= FAQ_ANSWER_PREVIEW_CHARS else text[:FAQ_ANSWER_PREVIEW_CHARS] + "..."
-
-    faq_list = "\n".join(
-        f"- {faq.intent_keyword} (category: {faq.category})\n"
-        f"  Q: {faq.question_text}\n"
-        f"  A: {answer_preview(faq)}"
-        for faq in faqs_by_keyword.values()
-    )
-    open_ticket_list = "\n".join(
-        f"- id {t.ticket_id}: {t.title} (student asked: "
-        f"\"{(t.log.user_message if t.log else t.issue_description)[:150]}\")"
-        for t in open_tickets
-    ) or "(none)"
-    keyword_enum = {"type": "string", "enum": list(faqs_by_keyword.keys())}
-    ticket_id_schema = (
-        {"anyOf": [{"type": "string", "enum": [str(t.ticket_id) for t in open_tickets]}, {"type": "null"}]}
-        if open_tickets
-        else {"type": "null"}
-    )
-
-    try:
-        response = _client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT_TEMPLATE.format(faq_list=faq_list, open_tickets=open_ticket_list),
-                },
-                {"role": "user", "content": _build_classifier_input(message, history)},
-            ],
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "chat_message_decision",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "message_type": {
-                                "type": "string",
-                                "enum": [
-                                    "unclear", "conversational", "account_info", "other_person_info",
-                                    "asks_for_staff", "faq_match", "off_topic",
-                                    "needs_clarification", "needs_staff",
-                                ],
-                            },
-                            "matched_intent_keyword": {"anyOf": [keyword_enum, {"type": "null"}]},
-                            "match_confidence": {"type": "string", "enum": ["high", "medium", "none"]},
-                            "candidate_intent_keywords": {"type": "array", "items": keyword_enum},
-                            "requested_details": {
-                                "type": "array",
-                                "items": {"type": "string", "enum": list(ACCOUNT_DETAILS)},
-                            },
-                            "duplicate_of_ticket_id": ticket_id_schema,
-                            "ticket_title": {"type": "string"},
-                        },
-                        "required": [
-                            "message_type", "matched_intent_keyword", "match_confidence",
-                            "candidate_intent_keywords", "requested_details",
-                            "duplicate_of_ticket_id", "ticket_title",
-                        ],
-                        "additionalProperties": False,
-                    },
-                },
-            },
-        )
-        decision = json.loads(response.choices[0].message.content)
-    except Exception:
-        # Any failure (network, auth, rate limit, malformed response) falls back to
-        # staff rather than 500ing - no student query should go unanswered.
-        return _staff_result(message, None, open_tickets)
-
+def _decide(decision, message, *, user, history, faqs_by_keyword, open_tickets) -> dict:
+    """Turns one classifier decision (for one question) into a result."""
     message_type = decision["message_type"]
     ticket_title = decision.get("ticket_title")
 
@@ -509,3 +409,178 @@ def classify_message(message: str, office=None, history=None, user=None) -> dict
         return _clarification_result(faqs_by_keyword, candidates)
 
     return _staff_result(message, ticket_title, open_tickets, decision.get("duplicate_of_ticket_id"))
+
+
+def _single(result, message) -> dict:
+    return {"parts": [{**result, "message": message, "question": None}], "more_questions": False}
+
+
+def _same_outcome(a, b) -> bool:
+    """Two questions that ended up with the same answer (or the same open
+    ticket) are shown once."""
+    if a.get("faq") is not None or b.get("faq") is not None:
+        return a.get("faq") is b.get("faq")
+    if a.get("existing_ticket") is not None or b.get("existing_ticket") is not None:
+        return a.get("existing_ticket") is b.get("existing_ticket")
+    return a["detected_intent"] == b["detected_intent"] and a["reply"] == b["reply"] and "ticket_title" not in a
+
+
+def answer_message(message: str, office=None, history=None, user=None) -> dict:
+    """
+    Decides how to handle one student message, which may ask up to
+    MAX_QUESTIONS separate questions. Returns {"parts": [...], "more_questions"}:
+    one part per question, in the order asked. Each part has detected_intent
+    and reply, plus ticket_title when a new ticket should be created,
+    existing_ticket when it repeats an open one, or suggested_questions when
+    asking the student to clarify; "message" is the text to log for it and
+    "question" labels it when the message had more than one (else None).
+    more_questions is True when the student asked more than MAX_QUESTIONS.
+
+    office: the Office picked in the mobile category selector (optional) -
+    narrows the FAQ pool to that office's FAQs plus uncategorized ones, and
+    routes any resulting ticket to it.
+    history: the current chat's earlier turns ([{"role", "text"}], oldest
+    first) so follow-ups are understood in context.
+    user: the asking student, used to avoid duplicate tickets.
+    """
+    # "f", "?", "..." - nothing to classify, so skip the AI call entirely.
+    if sum(ch.isalnum() for ch in message) < 2:
+        return _single(UNCLEAR_RESULT, message)
+
+    if _is_small_talk(message):
+        return _single(_conversational_result(user, history), message)
+
+    open_tickets = _open_tickets_for(user)
+
+    # Embeddings (about 30 KB each) are read only by smart matching, from its cache.
+    candidate_faqs = Faq.objects.defer("embedding", "embedding_text")
+    if office is not None:
+        candidate_faqs = candidate_faqs.filter(models.Q(office=office) | models.Q(office__isnull=True))
+    faqs_by_keyword = {faq.intent_keyword: faq for faq in candidate_faqs}
+    if not faqs_by_keyword:
+        return _single(_staff_result(message, None, open_tickets), message)
+
+    # Quick actions and clarification chips send an FAQ's question verbatim -
+    # answer those directly: always correct, consistent, and no AI call.
+    normalized_message = _normalize_question(message)
+    for faq in faqs_by_keyword.values():
+        if _normalize_question(faq.question_text) == normalized_message:
+            return _single(_faq_result(faq), message)
+
+    # A clear match by meaning is answered straight away; anything less
+    # clear goes on to the classifier, which can also ask "did you mean...?".
+    # Not for a message with two or more question marks: it likely asks
+    # several things, and one match would answer only one of them.
+    if message.count("?") < 2:
+        clear_faq = matching.clear_match(_client, message, list(faqs_by_keyword.values()), history)
+        if clear_faq is not None:
+            return _single(_faq_result(clear_faq), message)
+
+    def answer_preview(faq):
+        text = " ".join(faq.answer_content.split())
+        return text if len(text) <= FAQ_ANSWER_PREVIEW_CHARS else text[:FAQ_ANSWER_PREVIEW_CHARS] + "..."
+
+    faq_list = "\n".join(
+        f"- {faq.intent_keyword} (category: {faq.category})\n"
+        f"  Q: {faq.question_text}\n"
+        f"  A: {answer_preview(faq)}"
+        for faq in faqs_by_keyword.values()
+    )
+    open_ticket_list = "\n".join(
+        f"- id {t.ticket_id}: {t.title} (student asked: "
+        f"\"{(t.log.user_message if t.log else t.issue_description)[:150]}\")"
+        for t in open_tickets
+    ) or "(none)"
+    keyword_enum = {"type": "string", "enum": list(faqs_by_keyword.keys())}
+    ticket_id_schema = (
+        {"anyOf": [{"type": "string", "enum": [str(t.ticket_id) for t in open_tickets]}, {"type": "null"}]}
+        if open_tickets
+        else {"type": "null"}
+    )
+    part_schema = {
+        "type": "object",
+        "properties": {
+            "question": {"type": "string"},
+            "message_type": {
+                "type": "string",
+                "enum": [
+                    "unclear", "conversational", "account_info", "other_person_info",
+                    "asks_for_staff", "faq_match", "off_topic",
+                    "needs_clarification", "needs_staff",
+                ],
+            },
+            "matched_intent_keyword": {"anyOf": [keyword_enum, {"type": "null"}]},
+            "match_confidence": {"type": "string", "enum": ["high", "medium", "none"]},
+            "candidate_intent_keywords": {"type": "array", "items": keyword_enum},
+            "requested_details": {
+                "type": "array",
+                "items": {"type": "string", "enum": list(ACCOUNT_DETAILS)},
+            },
+            "duplicate_of_ticket_id": ticket_id_schema,
+            "ticket_title": {"type": "string"},
+        },
+        "required": [
+            "question", "message_type", "matched_intent_keyword", "match_confidence",
+            "candidate_intent_keywords", "requested_details",
+            "duplicate_of_ticket_id", "ticket_title",
+        ],
+        "additionalProperties": False,
+    }
+
+    try:
+        response = _client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT_TEMPLATE.format(faq_list=faq_list, open_tickets=open_ticket_list),
+                },
+                {"role": "user", "content": _build_classifier_input(message, history)},
+            ],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "chat_message_decision",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {"questions": {"type": "array", "items": part_schema}},
+                        "required": ["questions"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        )
+        decisions = json.loads(response.choices[0].message.content)["questions"]
+    except Exception:
+        # Any failure (network, auth, rate limit, malformed response) falls back to
+        # staff rather than 500ing - no student query should go unanswered.
+        return _single(_staff_result(message, None, open_tickets), message)
+
+    decide = dict(user=user, history=history, faqs_by_keyword=faqs_by_keyword, open_tickets=open_tickets)
+    if not decisions:
+        return _single(UNCLEAR_RESULT, message)
+    if len(decisions) == 1:
+        return _single(_decide(decisions[0], message, **decide), message)
+
+    # Several questions: a greeting or "thanks" split off as its own part is
+    # dropped - the real questions get the answers.
+    real = [d for d in decisions if d["message_type"] not in ("conversational", "unclear")] or decisions[:1]
+    asked = real[:MAX_QUESTIONS]
+    parts = []
+    for decision in asked:
+        question = " ".join(str(decision.get("question") or "").split())[:QUESTION_MAX_LENGTH] or message
+        part_message = question if len(asked) > 1 else message
+        result = _decide(decision, part_message, **decide)
+        if any(_same_outcome(result, earlier) for earlier in parts):
+            continue
+        parts.append({**result, "message": part_message, "question": question})
+    if len(parts) == 1:
+        # Only one distinct answer after all: log the whole message, no label.
+        parts[0] = {**parts[0], "message": message, "question": None}
+    return {"parts": parts, "more_questions": len(real) > MAX_QUESTIONS}
+
+
+def classify_message(message: str, office=None, history=None, user=None) -> dict:
+    """The result for the message's first question - see answer_message."""
+    return answer_message(message, office=office, history=history, user=user)["parts"][0]

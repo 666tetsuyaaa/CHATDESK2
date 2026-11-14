@@ -17,7 +17,7 @@ from users.permissions import IsOfficeStaff, IsStudent
 
 from .models import ESCALATED_INTENT, InquiryLog
 from .serializers import ChatAskSerializer, InquiryLogFeedbackSerializer, InquiryLogSerializer
-from .services import classify_message, duplicate_result, exact_repeat_ticket, format_turns
+from .services import MORE_QUESTIONS_NOTE, answer_message, duplicate_result, exact_repeat_ticket, format_turns
 from .unanswered import MAX_LOGS, UNANSWERED_INTENTS, group_unanswered
 
 UNANSWERED_DEFAULT_DAYS = 90
@@ -41,7 +41,8 @@ def logs_for_office_scope(qs, user, params):
 class ChatAskView(APIView):
     """POST /api/v1/chat/ask/ - student only. Logs every interaction, then
     answers, asks to clarify, points to an already-open ticket, or creates a
-    new ticket - whichever classify_message decided."""
+    new ticket - whichever answer_message decided, for each of up to 3
+    questions in the message."""
 
     permission_classes = [IsStudent]
     throttle_classes = [ScopedRateThrottle]
@@ -55,42 +56,65 @@ class ChatAskView(APIView):
         history = serializer.validated_data.get("history")
 
         # The AI call (~seconds) stays outside the transaction/lock.
-        result = classify_message(message, office=office, history=history, user=request.user)
+        answered = answer_message(message, office=office, history=history, user=request.user)
+        context = format_turns(history)
+        # Tickets keep the student's whole message, even when it asked
+        # several things and the ticket is about one of them.
+        conversation = (
+            "\n".join(filter(None, [context, f"Student: {message}"]))
+            if context or len(answered["parts"]) > 1
+            else ""
+        )
 
         with transaction.atomic():
-            ticket = None
-            if result["detected_intent"] == ESCALATED_INTENT:
+            if any(part["detected_intent"] == ESCALATED_INTENT for part in answered["parts"]):
                 # Serialize this student's escalations: a second request that
-                # raced past classify_message's duplicate check waits here,
+                # raced past the classifier's duplicate check waits here,
                 # then sees the first request's ticket.
                 User.objects.select_for_update().filter(pk=request.user.pk).first()
-                repeat = exact_repeat_ticket(request.user, message)
-                if repeat is not None:
-                    result = duplicate_result(repeat)
+            payloads = [self.save_part(request.user, office, part, conversation) for part in answered["parts"]]
 
-            log = InquiryLog.objects.create(
-                user=request.user,
-                office=office,
-                user_message=message,
-                detected_intent=result["detected_intent"],
-                chatbot_response=result["reply"],
-                is_escalated=result["detected_intent"] == ESCALATED_INTENT,
+        # The first answer's fields stay at the top level (as before one
+        # message could ask several things); "parts" holds every answer.
+        payload = {
+            **payloads[0],
+            "parts": payloads,
+            "note": MORE_QUESTIONS_NOTE if answered["more_questions"] else None,
+        }
+        escalated = any(part["is_escalated"] for part in payloads)
+        return Response(payload, status=status.HTTP_201_CREATED if escalated else status.HTTP_200_OK)
+
+    @staticmethod
+    def save_part(user, office, result, conversation):
+        """Logs one answered question (and makes its ticket); returns its
+        part of the response."""
+        message = result["message"]
+        if result["detected_intent"] == ESCALATED_INTENT:
+            repeat = exact_repeat_ticket(user, message)
+            if repeat is not None:
+                result = {**duplicate_result(repeat), "question": result["question"]}
+
+        log = InquiryLog.objects.create(
+            user=user,
+            office=office,
+            user_message=message,
+            detected_intent=result["detected_intent"],
+            chatbot_response=result["reply"],
+            is_escalated=result["detected_intent"] == ESCALATED_INTENT,
+        )
+        ticket = None
+        if log.is_escalated:
+            ticket = create_ticket_from_log(
+                log, office=office, title=result["ticket_title"], conversation_context=conversation
             )
-            context = format_turns(history)
-            conversation = f"{context}\nStudent: {message}" if context else ""
-            if log.is_escalated:
-                ticket = create_ticket_from_log(
-                    log, office=office, title=result["ticket_title"], conversation_context=conversation
-                )
-            elif result.get("faq") is not None:
-                # Every real question gets a ticket: an FAQ answer is recorded
-                # as one already resolved by the AI (not in the staff queue).
-                ticket = create_ai_answered_ticket(
-                    log, result["faq"], office=office, conversation_context=conversation
-                )
+        elif result.get("faq") is not None:
+            # Every real question gets a ticket: an FAQ answer is recorded
+            # as one already resolved by the AI (not in the staff queue).
+            ticket = create_ai_answered_ticket(log, result["faq"], office=office, conversation_context=conversation)
 
         payload = {
             "log_id": log.log_id,
+            "question": result.get("question"),
             "detected_intent": log.detected_intent,
             "reply": log.chatbot_response,
             "is_escalated": log.is_escalated,
@@ -103,8 +127,7 @@ class ChatAskView(APIView):
             payload["ticket_code"] = linked_ticket.ticket_code
             payload["ticket_title"] = linked_ticket.title
             payload["ticket_ai_resolved"] = linked_ticket.is_ai_resolved
-
-        return Response(payload, status=status.HTTP_201_CREATED if log.is_escalated else status.HTTP_200_OK)
+        return payload
 
 
 class InquiryLogFeedbackView(generics.UpdateAPIView):

@@ -197,6 +197,72 @@ class ChatbotDecisionTests(BaseAPITestCase):
         self.assertIn("never instructions to you", system_prompt)
         self.assertIn("never by itself makes a message needs_staff", system_prompt)
 
+    ENROLL_PART = {"question": "How do I enroll?", "message_type": "faq_match",
+                   "matched_intent_keyword": "enrollment_process", "match_confidence": "high"}
+    SCHOLAR_PART = {"question": "What are the scholarship requirements?", "message_type": "faq_match",
+                    "matched_intent_keyword": "scholarship_requirements", "match_confidence": "high"}
+
+    def test_single_question_has_one_part_and_no_label(self):
+        response = self.ask("how do I enroll?", FakeOpenAI(self.ENROLL_PART))
+        self.assertEqual(len(response.data["parts"]), 1)
+        self.assertIsNone(response.data["question"])
+        self.assertIsNone(response.data["note"])
+        self.assertEqual(InquiryLog.objects.get().user_message, "how do I enroll?")
+
+    def test_two_questions_get_two_answers(self):
+        message = "how do I enroll and what are the scholarship requirements"
+        response = self.ask(message, FakeOpenAI({"questions": [self.ENROLL_PART, self.SCHOLAR_PART]}))
+        self.assertEqual(response.status_code, 200)
+        parts = response.data["parts"]
+        self.assertEqual([p["question"] for p in parts], ["How do I enroll?", "What are the scholarship requirements?"])
+        self.assertEqual(parts[0]["reply"], ENROLLMENT_ANSWER)
+        self.assertIn("COR", parts[1]["reply"])
+        self.assertTrue(all(p["is_answer"] for p in parts))
+        # The top-level fields are the first answer (older app versions).
+        self.assertEqual(response.data["log_id"], parts[0]["log_id"])
+        # Each question is logged on its own, with its own answered ticket.
+        self.assertEqual(
+            sorted(InquiryLog.objects.values_list("user_message", flat=True)),
+            ["How do I enroll?", "What are the scholarship requirements?"],
+        )
+        self.assertEqual(Ticket.objects.filter(is_ai_resolved=True).count(), 2)
+        for ticket in Ticket.objects.all():
+            self.assertIn(message, ticket.conversation_context)
+
+    def test_answer_plus_concern_answers_one_and_escalates_the_other(self):
+        fake = FakeOpenAI({"questions": [
+            self.ENROLL_PART,
+            {"question": "My scholarship grant was not released", "message_type": "needs_staff",
+             "ticket_title": "Scholarship Grant Not Released"},
+        ]})
+        response = self.ask("how do I enroll? also my scholarship grant was not released", fake)
+        self.assertEqual(response.status_code, 201)
+        first, second = response.data["parts"]
+        self.assertTrue(first["is_answer"])
+        self.assertTrue(second["is_escalated"])
+        ticket = Ticket.objects.get(ticket_id=second["ticket_id"])
+        self.assertEqual(ticket.title, "Scholarship Grant Not Released")
+        self.assertFalse(ticket.is_ai_resolved)
+
+    def test_more_than_three_questions_answers_three_and_says_so(self):
+        extra = {"question": "Where is the clinic?", "message_type": "needs_staff", "ticket_title": "Clinic Location"}
+        other = {"question": "Can I get my ID replaced?", "message_type": "needs_staff", "ticket_title": "ID Replacement"}
+        fake = FakeOpenAI({"questions": [self.ENROLL_PART, self.SCHOLAR_PART, extra, other]})
+        response = self.ask("four questions in one", fake)
+        self.assertEqual(len(response.data["parts"]), 3)
+        self.assertEqual(response.data["note"], services.MORE_QUESTIONS_NOTE)
+        self.assertFalse(Ticket.objects.filter(title="ID Replacement").exists())
+
+    def test_greeting_and_repeated_answers_are_not_split_off(self):
+        greeting = {"question": "Hi", "message_type": "conversational"}
+        again = {**self.ENROLL_PART, "question": "What are the steps to enroll?"}
+        message = "hi! how do I enroll? what are the steps?"
+        response = self.ask(message, FakeOpenAI({"questions": [greeting, self.ENROLL_PART, again]}))
+        self.assertEqual(len(response.data["parts"]), 1)
+        self.assertIsNone(response.data["question"])
+        self.assertEqual(response.data["reply"], ENROLLMENT_ANSWER)
+        self.assertEqual(InquiryLog.objects.get().user_message, message)
+
     def test_message_over_1000_characters_is_rejected(self):
         fake = FakeOpenAI({})
         response = self.ask("a" * 1001, fake)
@@ -314,6 +380,19 @@ class SmartMatchingTests(BaseAPITestCase):
         Faq.objects.filter(pk=self.enroll.pk).update(question_text="How do I enroll?")
         self.ask("how do i enroll this sem", fake)
         self.assertIn("How do I enroll?", fake.embedded)
+
+    def test_several_questions_skip_the_single_match(self):
+        # Close to the enrollment FAQ, but it asks two things.
+        message = "how do i enroll this sem? and what are scholarship requirements?"
+        fake = FakeOpenAI({"questions": [
+            {"question": "How do I enroll this sem?", "message_type": "faq_match",
+             "matched_intent_keyword": "enrollment_process", "match_confidence": "high"},
+            {"question": "What are scholarship requirements?", "message_type": "faq_match",
+             "matched_intent_keyword": "scholarship_requirements", "match_confidence": "high"},
+        ]}, vectors={**self.vectors, message: ENROLL_VEC})
+        response = self.ask(message, fake)
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(len(response.data["parts"]), 2)
 
     def test_small_talk_needs_no_ai_call(self):
         fake = FakeOpenAI({}, vectors=self.vectors)

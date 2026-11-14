@@ -280,6 +280,20 @@ Response 200 (Successful AI Resolution):
 # staff queue; the student can ask for staff follow-up on it (see
 # POST /tickets/{ticket_id}/follow-up/). Greetings, gibberish, off-topic and
 # clarification prompts create no ticket.
+# Several questions in one message: each response also has
+#   "question": null,          - which question this answer is for; only set
+#                                 when the message asked more than one thing
+#   "parts": [ {...}, ... ],    - one object per question, in the order asked
+#                                 (up to 3), each with the same fields as above
+#                                 (log_id, question, detected_intent, reply,
+#                                 is_escalated, is_answer, suggested_questions,
+#                                 ticket_*). A single question gives one part.
+#   "note": null               - when more than 3 questions were asked: "I answered
+#                                 your first 3 questions. Please send the rest
+#                                 in a new message so I can answer each one."
+# The top-level fields are always parts[0]. Each part is its own inquiry log
+# (user_message = that question) and, where needed, its own ticket; tickets
+# keep the whole message in conversation_context. 201 if any part escalated.
 Response 201 (AI Failed, Ticket Escalation Triggered):
 {
   "log_id": 5043,

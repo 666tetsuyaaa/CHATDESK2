@@ -23,6 +23,9 @@ export type ChatMessage = {
   ticketAiResolved?: boolean;
   // FAQ questions offered when the bot asks the student to clarify.
   suggestions?: string[];
+  // When one message asked several things: the question this reply answers
+  // (shown above it).
+  question?: string;
   // A connection or server error shown in the chat. Never sent to the
   // backend as conversation context and never saved to History.
   isError?: boolean;
@@ -182,7 +185,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // ("is that all?") from a new, unanswerable question.
     const history = realMessages(base ?? messages)
       .slice(-6)
-      .map((m) => ({ role: m.role, text: m.text }));
+      .map((m) => ({ role: m.role, text: m.question ? `${m.question}\n${m.text}` : m.text }));
 
     // A new chat gets its History entry with its first message.
     if (!activeSessionId) setActiveSessionId(Date.now().toString());
@@ -201,25 +204,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // "Can't reach ChatDesk" while the server was still answering.
         { timeout: 45000 }
       );
-      const reply: ChatMessage = {
-          role: "assistant",
-          text: data.reply,
-          logId: data.log_id,
-          feedback: null,
-          canRate: Boolean(data.is_answer),
-          ...(data.ticket_id
-            ? {
-                ticketId: data.ticket_id,
-                ticketTitle: data.ticket_title,
-                ticketCode: data.ticket_code,
-                ticketAiResolved: Boolean(data.ticket_ai_resolved),
-              }
-            : {}),
-          ...(data.suggested_questions?.length ? { suggestions: data.suggested_questions } : {}),
-        };
+      // One reply per question asked (a message can ask up to 3 things).
+      const parts: any[] = data.parts?.length ? data.parts : [data];
+      const replies: ChatMessage[] = parts.map((part) => ({
+        role: "assistant",
+        text: part.reply,
+        logId: part.log_id,
+        feedback: null,
+        canRate: Boolean(part.is_answer),
+        ...(part.question ? { question: part.question } : {}),
+        ...(part.ticket_id
+          ? {
+              ticketId: part.ticket_id,
+              ticketTitle: part.ticket_title,
+              ticketCode: part.ticket_code,
+              ticketAiResolved: Boolean(part.ticket_ai_resolved),
+            }
+          : {}),
+        ...(part.suggested_questions?.length ? { suggestions: part.suggested_questions } : {}),
+      }));
+      // More than 3 questions: says the rest need a new message.
+      if (data.note) replies.push({ role: "assistant", text: data.note });
       // Shown word by word once (see components/revealing-answer.tsx).
-      freshReplies.add(reply);
-      setMessages((prev) => [...prev, reply]);
+      replies.forEach((reply) => freshReplies.add(reply));
+      setMessages((prev) => [...prev, ...replies]);
     } catch (error: any) {
       const status = error.response?.status;
       const data = error.response?.data;

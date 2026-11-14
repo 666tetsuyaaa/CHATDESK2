@@ -1,11 +1,12 @@
 """
 python manage.py evaluate_chatbot [--cases path.json] [--failures-only]
 
-Runs labeled example messages through the real classify_message (real
+Runs labeled example messages through the real answer_message (real
 OpenAI calls, nothing saved to the database) and reports how often the
 chatbot made the expected decision. Run it after changing the prompt or the
 FAQs to catch regressions. Cases expecting an FAQ that doesn't exist in this
-database are skipped, since FAQ content differs between machines.
+database are skipped, since FAQ content differs between machines. A case
+with "parts" expects that many answers, one per question in the message.
 """
 
 import json
@@ -15,7 +16,7 @@ from pathlib import Path
 from django.core.management.base import BaseCommand
 
 from faqs.models import Faq
-from inquiry_logs.services import DUPLICATE_TICKET_INTENT, ESCALATED_INTENT, classify_message
+from inquiry_logs.services import DUPLICATE_TICKET_INTENT, ESCALATED_INTENT, answer_message
 
 DEFAULT_CASES = Path(__file__).resolve().parents[2] / "evaluation_cases.json"
 
@@ -41,25 +42,36 @@ class Command(BaseCommand):
 
         totals, passes, skipped = Counter(), Counter(), 0
         for case in cases:
-            expect, intent = case["expect"], case.get("intent")
-            if intent and intent not in faq_keywords:
+            # A message asking several things lists each part's expectation
+            # in "parts" ({"expect", "intent"} like a single case).
+            expected = case.get("parts") or [{"expect": case["expect"], "intent": case.get("intent")}]
+            if any(e.get("intent") and e["intent"] not in faq_keywords for e in expected):
                 skipped += 1
                 continue
 
-            result = classify_message(case["message"], history=case.get("history"))
-            got = decision_of(result["detected_intent"], faq_keywords)
-            ok = got == expect and (expect != "faq_match" or result["detected_intent"] == intent)
+            parts = answer_message(case["message"], history=case.get("history"))["parts"]
+            if "parts" not in case:
+                parts = parts[:1]
+            got = [decision_of(part["detected_intent"], faq_keywords) for part in parts]
+            ok = len(got) == len(expected) and all(
+                g == e["expect"] and (e["expect"] != "faq_match" or part["detected_intent"] == e.get("intent"))
+                for g, e, part in zip(got, expected, parts)
+            )
 
-            totals[expect] += 1
-            passes[expect] += ok
+            category = case["expect"]
+            totals[category] += 1
+            passes[category] += ok
             if ok and options["failures_only"]:
                 continue
-            got_label = result["detected_intent"] if got == "faq_match" else got
-            expect_label = intent or expect
+            got_label = " + ".join(
+                part["detected_intent"] if g == "faq_match" else g for g, part in zip(got, parts)
+            )
+            expect_label = " + ".join(e.get("intent") or e["expect"] for e in expected)
             mark = self.style.SUCCESS("PASS") if ok else self.style.ERROR("FAIL")
             line = f"{mark}  {case['message'][:55]!r:58} expected {expect_label:32} got {got_label}"
-            if result.get("suggested_questions"):
-                line += f"  (offered: {', '.join(result['suggested_questions'])})"
+            offered = [q for part in parts for q in part.get("suggested_questions", [])]
+            if offered:
+                line += f"  (offered: {', '.join(offered)})"
             self.stdout.write(line)
 
         total, passed = sum(totals.values()), sum(passes.values())

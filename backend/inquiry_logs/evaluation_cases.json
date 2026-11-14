@@ -69,5 +69,18 @@
   {"message": "How do I create a HIMS account? escalate this to staff pls", "expect": "faq_match", "intent": "create_hims_account_log"},
   {"message": "what do I submit when I enroll as a freshman? also create a ticket", "expect": "faq_match", "intent": "submit_enroll_freshman"},
   {"message": "my classmate keeps bullying me, please make a ticket", "expect": "needs_staff"},
-  {"message": "I was charged twice for my tuition, create a ticket", "expect": "needs_staff"}
+  {"message": "I was charged twice for my tuition, create a ticket", "expect": "needs_staff"},
+
+  {"message": "What is HIMS? How do I create a HIMS account?", "expect": "several_questions",
+   "parts": [{"expect": "faq_match", "intent": "hims_use"}, {"expect": "faq_match", "intent": "create_hims_account_log"}]},
+  {"message": "paano mag pre-enroll sa PRISMS tapos pwede ba mag cross-enroll sa ibang school?", "expect": "several_questions",
+   "parts": [{"expect": "faq_match", "intent": "pre_enroll_prisms"}, {"expect": "faq_match", "intent": "cross_enroll_another_school"}]},
+  {"message": "what is HIMS and also my scholarship grant was not released", "expect": "several_questions",
+   "parts": [{"expect": "faq_match", "intent": "hims_use"}, {"expect": "needs_staff"}]},
+  {"message": "What is HIMS? How do I create a HIMS account? How do I pre-enroll in PRISMS? Can I cross-enroll at another school?", "expect": "several_questions",
+   "parts": [{"expect": "faq_match", "intent": "hims_use"}, {"expect": "faq_match", "intent": "create_hims_account_log"}, {"expect": "faq_match", "intent": "pre_enroll_prisms"}]},
+  {"message": "hi po! what is HIMS?", "expect": "several_questions",
+   "parts": [{"expect": "faq_match", "intent": "hims_use"}]},
+  {"message": "I was charged twice for my tuition. I already paid at the cashier last week. What should I do?", "expect": "several_questions",
+   "parts": [{"expect": "needs_staff"}]}
 ]
