@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
@@ -59,9 +59,16 @@ export default function AdminDashboardLayout() {
   const { currentUser } = useAuth();
   const meta = PAGE_META[pathname] ?? { title: "Super Admin Dashboard", subtitle: "" };
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // Every page scrolls inside this one <main>, which stays mounted between
+  // pages - so a new page opened at the previous page's scroll position.
+  const mainRef = useRef(null);
 
   useEffect(() => {
     setIsMobileSidebarOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, left: 0 });
   }, [pathname]);
 
   return (
@@ -112,7 +119,7 @@ export default function AdminDashboardLayout() {
             </Link>
           </div>
         </header>
-        <main className="app-scroll relative z-0 flex-1 overflow-y-auto p-5 sm:p-8">
+        <main ref={mainRef} className="app-scroll relative z-0 flex-1 overflow-y-auto p-5 sm:p-8">
           <Outlet />
         </main>
       </div>

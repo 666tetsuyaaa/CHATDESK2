@@ -19,6 +19,7 @@ import { PressableScale } from "../components/pressable-scale";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import axiosClient from "../lib/axiosClient";
+import { profilePhotoForm } from "../lib/profilePhoto";
 import { courseName } from "../lib/courses";
 import { serverFieldErrors, validatePersonName } from "../lib/validation";
 import type { ThemePalette } from "../theme/colors";
@@ -31,6 +32,8 @@ export default function ProfileScreen() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  // Shown under the photo - an Alert never appears in the web app.
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [nicknameError, setNicknameError] = useState<string | null>(null);
 
   const userInitial = currentUser?.first_name?.[0]?.toUpperCase() ?? "?";
@@ -79,20 +82,23 @@ export default function ProfileScreen() {
 
     const asset = result.assets[0];
     setIsUploadingPhoto(true);
+    setPhotoError(null);
     try {
-      const formData = new FormData();
-      formData.append("profile_picture", {
-        uri: asset.uri,
-        name: asset.fileName ?? "profile.jpg",
-        type: asset.mimeType ?? "image/jpeg",
-      } as unknown as Blob);
-      const { data } = await axiosClient.patch("/auth/me/", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const formData = await profilePhotoForm(asset);
+      const { data } = await axiosClient.patch(
+        "/auth/me/",
+        formData,
+        // Phones need the type set; a browser must set it itself (it adds
+        // the boundary that marks where the photo is in the upload).
+        Platform.OS === "web" ? undefined : { headers: { "Content-Type": "multipart/form-data" } }
+      );
       updateCurrentUser(data);
     } catch (error: any) {
-      const reason = error.response?.data?.details?.profile_picture?.[0];
-      Alert.alert("Unable to update photo", reason ?? "Please try again.");
+      const reason =
+        error.response?.data?.details?.profile_picture?.[0] ??
+        (error.response ? "Please try a different photo." : "Couldn't reach ChatDesk - check your connection and try again.");
+      setPhotoError(reason);
+      if (Platform.OS !== "web") Alert.alert("Unable to update photo", reason);
     } finally {
       setIsUploadingPhoto(false);
     }
@@ -152,6 +158,11 @@ export default function ProfileScreen() {
         <Pressable onPress={handlePickPhoto} disabled={isUploadingPhoto} hitSlop={8} accessibilityRole="button">
           <Text style={styles.changePhoto}>Change photo</Text>
         </Pressable>
+        {photoError ? (
+          <Text style={styles.photoError} accessibilityRole="alert">
+            {photoError}
+          </Text>
+        ) : null}
         </View>
         <View style={styles.identityText}>
           <Text style={styles.name}>{fullName || "Student"}</Text>
@@ -184,6 +195,15 @@ export default function ProfileScreen() {
 
       <Text style={styles.sectionLabel}>Account</Text>
       <PressableScale
+        style={[styles.button, styles.logoutButton, styles.accountRowButton]}
+        onPress={() => router.push("/change-password")}
+        accessibilityRole="button"
+        accessibilityLabel="Change password"
+      >
+        <MaterialIcons name="lock-outline" size={18} color={colors.accentText} />
+        <Text style={[styles.buttonText, { color: colors.accentText }]}>Change password</Text>
+      </PressableScale>
+      <PressableScale
         style={[styles.button, styles.logoutButton]}
         onPress={handleLogout}
         disabled={isLoggingOut}
@@ -211,6 +231,14 @@ const createStyles = (colors: ThemePalette) =>
     avatarColumn: { alignItems: "center", gap: 6 },
     identityText: { flex: 1, paddingTop: 6 },
     changePhoto: { fontFamily: "Montserrat_700Bold", fontSize: 12, color: colors.accentText },
+    photoError: {
+      maxWidth: 120,
+      marginTop: 4,
+      textAlign: "center",
+      fontFamily: "Montserrat_400Regular",
+      fontSize: 11,
+      color: colors.errorRed,
+    },
     avatar: {
       width: 56,
       height: 56,
@@ -270,4 +298,5 @@ const createStyles = (colors: ThemePalette) =>
     buttonTextIdle: { color: colors.textMuted },
     logoutButton: { flexDirection: "row", justifyContent: "center", gap: 8 },
     logoutText: { color: colors.errorRed },
+    accountRowButton: { marginBottom: 12 },
   });

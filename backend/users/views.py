@@ -20,6 +20,7 @@ from .permissions import IsAdmin
 from .serializers import (
     ActiveUserTokenRefreshSerializer,
     LoginSerializer,
+    PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
     RegisterSerializer,
@@ -27,6 +28,7 @@ from .serializers import (
     UserCreateSerializer,
     UserSelfUpdateSerializer,
     UserSerializer,
+    _tokens_for_user,
 )
 from .services import (
     EmailDeliveryError,
@@ -233,6 +235,29 @@ class PasswordResetConfirmView(APIView):
 
         return Response(
             {"message": "Password has been reset. You can now log in."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordChangeView(APIView):
+    """POST /api/v1/auth/password-change/ - any logged-in user. Changes the
+    password, signs the account out on every other device (their refresh
+    tokens stop working) and returns fresh tokens for this one."""
+
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_change"
+
+    def post(self, request):
+        serializer = PasswordChangeSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        with transaction.atomic():
+            user.set_password(serializer.validated_data["new_password"])
+            user.save(update_fields=["password"])
+            revoke_all_refresh_tokens(user)
+        return Response(
+            {"message": "Your password has been changed.", **_tokens_for_user(user)},
             status=status.HTTP_200_OK,
         )
 

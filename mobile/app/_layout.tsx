@@ -84,6 +84,7 @@ function RootNavigator() {
       <Stack.Screen name="forgot-password" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="profile" />
+      <Stack.Screen name="change-password" />
     </Stack>
     </NavigationThemeProvider>
   );
