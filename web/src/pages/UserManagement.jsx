@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMissingPage, useLatestLoad } from "../utils/latestLoad.js";
 import { createUser, deleteUser, getUsers, updateUser } from "../api/users.js";
 import { getOffices } from "../api/offices.js";
 import ScrollTable from "../components/ScrollTable.jsx";
@@ -43,7 +44,9 @@ export default function UserManagement() {
   const [sortDirection, setSortDirection] = useState("asc");
   const [page, setPage] = useState(1);
 
+  const startLoad = useLatestLoad();
   const loadUsers = () => {
+    const isLatest = startLoad();
     setIsLoading(true);
     const filters = {
       search: debouncedSearch || undefined,
@@ -58,11 +61,19 @@ export default function UserManagement() {
       sort: sortDirection === "desc" ? "desc" : undefined,
     })
       .then((res) => {
+        if (!isLatest()) return;
+        setError(null);
         setUsers(res.data.results ?? res.data);
         setTotalCount(res.data.count ?? (res.data.results ?? res.data).length);
       })
-      .catch(() => setError("Could not load users."))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!isLatest()) return;
+        if (isMissingPage(err, page)) setPage(1);
+        else setError("Could not load users.");
+      })
+      .finally(() => {
+        if (isLatest()) setIsLoading(false);
+      });
     // Active users across all pages (same search and role), not just this page.
     if (statusFilter === "inactive") {
       setActiveCount(0);
@@ -121,7 +132,7 @@ export default function UserManagement() {
   };
 
   if (isLoading && users.length === 0) return <LoadingState label="Loading users..." />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={() => { setError(null); loadUsers(); }} />;
 
   return (
     <section>
@@ -264,7 +275,7 @@ export default function UserManagement() {
                         {ROLE_LABELS[user.role] ?? user.role}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-gray-500">{user.office_name || "—"}</td>
+                    <td className="min-w-[11rem] px-5 py-3.5 text-gray-500">{user.office_name || "—"}</td>
                     <td className="px-5 py-3.5">
                       <span
                         className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium ${

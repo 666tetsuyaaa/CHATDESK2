@@ -64,18 +64,32 @@ export default function AdminDashboardLayout() {
   // pages - so a new page opened at the previous page's scroll position.
   const mainRef = useRef(null);
   // A section shown from memory got newer data from the server: draw the
-  // page again with it - unless the admin is typing or has a dialog open
-  // (they'd lose it); then the page shows the new data next time.
+  // page again with it - but only if the admin hasn't started using the
+  // page yet (a click, a key, a dialog open). Drawing it again then would
+  // close an expanded ticket or a form they're filling in; the page shows
+  // the new data the next time it's opened instead.
   const [refreshCount, setRefreshCount] = useState(0);
+  const usedRef = useRef(false);
   useEffect(() => {
+    usedRef.current = false;
+  }, [pathname, refreshCount]);
+  useEffect(() => {
+    const main = mainRef.current;
+    const markUsed = () => {
+      usedRef.current = true;
+    };
+    main?.addEventListener("pointerdown", markUsed);
+    main?.addEventListener("keydown", markUsed);
     const onRefreshed = () => {
-      const active = document.activeElement;
-      const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
       const dialogOpen = document.querySelector('[role="dialog"], [aria-modal="true"]');
-      if (!typing && !dialogOpen) setRefreshCount((count) => count + 1);
+      if (!usedRef.current && !dialogOpen) setRefreshCount((count) => count + 1);
     };
     window.addEventListener(REFRESHED_EVENT, onRefreshed);
-    return () => window.removeEventListener(REFRESHED_EVENT, onRefreshed);
+    return () => {
+      main?.removeEventListener("pointerdown", markUsed);
+      main?.removeEventListener("keydown", markUsed);
+      window.removeEventListener(REFRESHED_EVENT, onRefreshed);
+    };
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMissingPage, useLatestLoad } from "../utils/latestLoad.js";
 import { getInquiryLogs } from "../api/inquiryLogs.js";
 import { getOffices } from "../api/offices.js";
 import Pagination from "../components/Pagination.jsx";
@@ -30,7 +31,9 @@ export default function InquiryLogs() {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
 
+  const startLoad = useLatestLoad();
   const loadLogs = () => {
+    const isLatest = startLoad();
     setIsLoading(true);
     getInquiryLogs({
       page,
@@ -41,6 +44,8 @@ export default function InquiryLogs() {
       date_to: dateTo || undefined,
     })
       .then((res) => {
+        if (!isLatest()) return;
+        setError(null);
         const rows = res.data.results ?? res.data;
         setLogs(rows);
         setTotalCount(res.data.count ?? rows.length);
@@ -50,8 +55,14 @@ export default function InquiryLogs() {
           return next;
         });
       })
-      .catch(() => setError("Could not load inquiry logs."))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!isLatest()) return;
+        if (isMissingPage(err, page)) setPage(1);
+        else setError("Could not load inquiry logs.");
+      })
+      .finally(() => {
+        if (isLatest()) setIsLoading(false);
+      });
   };
 
   // Escalated stat reflects the true total (ignoring filters), matching the
@@ -98,7 +109,7 @@ export default function InquiryLogs() {
   };
 
   if (isLoading && logs.length === 0) return <LoadingState label="Loading inquiry logs..." />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={() => { setError(null); loadLogs(); }} />;
 
   return (
     <section>

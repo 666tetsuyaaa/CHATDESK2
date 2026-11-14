@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import { isMissingPage, useLatestLoad } from "../utils/latestLoad.js";
 import { getTicket, getTicketCounts, getTicketMessages, getTickets, sendTicketMessage, updateTicket } from "../api/tickets.js";
 import { getOffices } from "../api/offices.js";
 import FieldError, { invalidInput } from "../components/FieldError.jsx";
@@ -64,7 +65,9 @@ export default function TicketManagement() {
   const [thread, setThread] = useState([]);
   const [threadStatus, setThreadStatus] = useState("idle");
 
+  const startLoad = useLatestLoad();
   const loadTickets = () => {
+    const isLatest = startLoad();
     setIsLoading(true);
     getTickets({
       page,
@@ -76,6 +79,7 @@ export default function TicketManagement() {
       overdue: overdueOnly ? "true" : undefined,
     })
       .then((res) => {
+        if (!isLatest()) return;
         const rows = res.data.results ?? res.data;
         setTickets(rows);
         setTotalCount(res.data.count ?? rows.length);
@@ -86,8 +90,14 @@ export default function TicketManagement() {
           return next;
         });
       })
-      .catch(() => setError("Could not load tickets."))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!isLatest()) return;
+        if (isMissingPage(err, page)) setPage(1);
+        else setError("Could not load tickets.");
+      })
+      .finally(() => {
+        if (isLatest()) setIsLoading(false);
+      });
   };
 
   // Stat tiles reflect true totals regardless of the active filters - the
@@ -249,7 +259,7 @@ export default function TicketManagement() {
   };
 
   if (isLoading && tickets.length === 0 && !error) return <LoadingState label="Loading tickets..." />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={() => { setError(null); loadTickets(); }} />;
 
   return (
     <section>

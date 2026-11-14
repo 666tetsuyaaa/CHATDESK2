@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isMissingPage, useLatestLoad } from "../utils/latestLoad.js";
 import { createFaq, deleteFaq, getFaqCategoryCounts, getFaqs, updateFaq } from "../api/faqs.js";
 import { getOffices } from "../api/offices.js";
 import FaqFormModal, { CATEGORIES } from "../components/FaqFormModal.jsx";
@@ -29,7 +30,9 @@ export default function FaqManagement() {
   const [officeFilter, setOfficeFilter] = useState("All");
   const [page, setPage] = useState(1);
 
+  const startLoad = useLatestLoad();
   const loadFaqs = () => {
+    const isLatest = startLoad();
     setIsLoading(true);
     getFaqs({
       page,
@@ -38,11 +41,19 @@ export default function FaqManagement() {
       office: officeFilter === "All" ? undefined : officeFilter === "Unassigned" ? "unassigned" : officeFilter,
     })
       .then((res) => {
+        if (!isLatest()) return;
+        setError(null);
         setFaqs(res.data.results ?? res.data);
         setTotalCount(res.data.count ?? (res.data.results ?? res.data).length);
       })
-      .catch(() => setError("Could not load FAQs."))
-      .finally(() => setIsLoading(false));
+      .catch((err) => {
+        if (!isLatest()) return;
+        if (isMissingPage(err, page)) setPage(1);
+        else setError("Could not load FAQs.");
+      })
+      .finally(() => {
+        if (isLatest()) setIsLoading(false);
+      });
   };
 
   // One request for every category's count (it used to be a list per category).
@@ -102,7 +113,7 @@ export default function FaqManagement() {
   };
 
   if (isLoading && faqs.length === 0) return <LoadingState label="Loading FAQs..." />;
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error} onRetry={() => { setError(null); loadFaqs(); }} />;
 
   return (
     <section>
