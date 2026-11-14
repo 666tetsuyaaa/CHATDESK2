@@ -189,6 +189,8 @@ REST_FRAMEWORK = {
         "password_reset_request_email": "5/hour",
         "password_reset_confirm": "100/hour",
         "chat": "20/min",
+        # Saving History: once after each answer, plus copying old chats up.
+        "chat_history": "120/min",
         "ticket_messages": "10/min",
     },
 }

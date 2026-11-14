@@ -72,3 +72,35 @@ class InquiryLog(models.Model):
     def is_answer(self):
         """True when the reply was an FAQ's answer - the only replies worth rating."""
         return self.detected_intent not in SYSTEM_INTENTS
+
+
+class ChatSession(models.Model):
+    """
+    One of a student's saved chats - History in the app. Kept on the server
+    so it's the same on every phone and browser they log in from (it used to
+    live only in the browser that made it). Holds the chat as the app shows
+    it; the analytics and Inquiry Logs still come from InquiryLog. Deleted
+    with the student's account - unlike their inquiry logs, a chat history
+    is personal and has no use without them.
+    """
+
+    session_id = models.BigAutoField(primary_key=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="chat_sessions")
+    # The app's own id for the chat.
+    client_id = models.CharField(max_length=40)
+    title = models.CharField(max_length=120)
+    # [{"role": "user"|"assistant", "text": ..., plus what the app shows
+    # with a reply: logId, feedback, ticket*, suggestions, question}]
+    messages = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "tbl_chat_sessions"
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "client_id"], name="unique_chat_session_per_user"),
+        ]
+
+    def __str__(self):
+        return f"Chat {self.client_id} of user {self.user_id}"

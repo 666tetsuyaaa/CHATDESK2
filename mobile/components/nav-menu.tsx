@@ -57,7 +57,9 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
   const { colors, isDark, toggleDarkMode } = useTheme();
   const { currentUser } = useAuth();
   const styles = createStyles(colors);
-  const { history, activeSessionId, resumeSession, startNewChat } = useChat();
+  const { history, activeSessionId, resumeSession, startNewChat, deleteSession } = useChat();
+  // The History chat asking "Delete ...?" (one at a time).
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const panelWidth = width * PANEL_WIDTH_RATIO;
   const [isMounted, setIsMounted] = useState(visible);
@@ -193,19 +195,61 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
               {history.map((session) => {
                 // The chat on screen stays in the list, highlighted (like ChatGPT).
                 const isOpen = session.id === activeSessionId;
+                if (confirmingDelete === session.id) {
+                  return (
+                    <View key={session.id} style={[styles.historyRow, styles.historyConfirm]} accessibilityRole="alert">
+                      <Text style={styles.historyConfirmText} numberOfLines={2}>
+                        Delete “{session.title}”?
+                      </Text>
+                      <View style={styles.historyConfirmButtons}>
+                        <PressableScale
+                          onPress={() => {
+                            setConfirmingDelete(null);
+                            deleteSession(session.id);
+                          }}
+                          hitSlop={8}
+                          style={styles.historyConfirmButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Delete chat: ${session.title}`}
+                        >
+                          <Text style={[styles.historyConfirmAction, { color: colors.errorRed }]}>Delete</Text>
+                        </PressableScale>
+                        <PressableScale
+                          onPress={() => setConfirmingDelete(null)}
+                          hitSlop={8}
+                          style={styles.historyConfirmButton}
+                          accessibilityRole="button"
+                          accessibilityLabel="Keep this chat"
+                        >
+                          <Text style={styles.historyConfirmAction}>Cancel</Text>
+                        </PressableScale>
+                      </View>
+                    </View>
+                  );
+                }
                 return (
-                  <PressableScale pressedScale={0.98}
-                    key={session.id}
-                    style={[styles.historyRow, isOpen && styles.historyRowOpen]}
-                    onPress={() => handleResumeSession(session.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={session.title}
-                    accessibilityState={{ selected: isOpen }}
-                  >
-                    <Text style={[styles.historyLabel, isOpen && styles.historyLabelOpen]} numberOfLines={1}>
-                      {session.title}
-                    </Text>
-                  </PressableScale>
+                  <View key={session.id} style={[styles.historyItem, isOpen && styles.historyRowOpen]}>
+                    <PressableScale pressedScale={0.98}
+                      style={styles.historyRowMain}
+                      onPress={() => handleResumeSession(session.id)}
+                      accessibilityRole="button"
+                      accessibilityLabel={session.title}
+                      accessibilityState={{ selected: isOpen }}
+                    >
+                      <Text style={[styles.historyLabel, isOpen && styles.historyLabelOpen]} numberOfLines={1}>
+                        {session.title}
+                      </Text>
+                    </PressableScale>
+                    <PressableScale
+                      onPress={() => setConfirmingDelete(session.id)}
+                      hitSlop={6}
+                      style={styles.historyDelete}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${session.title}`}
+                    >
+                      <MaterialIcons name="delete-outline" size={18} color={colors.textMuted} />
+                    </PressableScale>
+                  </View>
                 );
               })}
             </ScrollView>
@@ -310,6 +354,15 @@ const createStyles = (colors: ThemePalette) =>
     historyList: { flex: 1 },
     historyListContent: { paddingBottom: 12 },
     historyRow: { paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, marginBottom: 2 },
+    // A History chat: the title (opens it) and a delete button.
+    historyItem: { flexDirection: "row", alignItems: "center", borderRadius: 10, marginBottom: 2 },
+    historyRowMain: { flex: 1, minWidth: 0, paddingVertical: 12, paddingLeft: 10, paddingRight: 4 },
+    historyDelete: { paddingVertical: 10, paddingHorizontal: 10 },
+    historyConfirm: { gap: 8, backgroundColor: `${colors.errorRed}14` },
+    historyConfirmText: { fontFamily: "Montserrat_700Bold", fontSize: 13, lineHeight: 18, color: colors.textPrimary },
+    historyConfirmButtons: { flexDirection: "row", justifyContent: "flex-end", gap: 4 },
+    historyConfirmButton: { paddingVertical: 4, paddingHorizontal: 10 },
+    historyConfirmAction: { fontFamily: "Montserrat_700Bold", fontSize: 13, color: colors.textSecondary },
     historyRowOpen: { backgroundColor: `${colors.accentText}1F` },
     historyLabel: { fontFamily: "Montserrat_400Regular", fontSize: 14, color: colors.textPrimary },
     historyLabelOpen: { fontFamily: "Montserrat_700Bold", color: colors.accentText },

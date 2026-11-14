@@ -9,7 +9,7 @@ from tickets.models import Ticket
 from users.models import User
 
 from . import matching, services
-from .models import ESCALATED_INTENT, InquiryLog
+from .models import ESCALATED_INTENT, ChatSession, InquiryLog
 
 ASK = "/api/v1/chat/ask/"
 ENROLLMENT_ANSWER = "Apply online, submit your documents, then confirm your subjects in the portal."
@@ -490,3 +490,93 @@ class InquiryLogListTests(BaseAPITestCase):
         self.assertEqual({row["user_email"] for row in by_name}, {"maria.santos@example.com"})
         self.assertEqual(len(by_name), 2)
         self.assertEqual({row["user_email"] for row in by_email}, {"juan@example.com"})
+
+
+SESSIONS = "/api/v1/chat/sessions/"
+
+
+class ChatHistoryTests(BaseAPITestCase):
+    def setUp(self):
+        super().setUp()
+        self.student = self.make_user("student@example.com")
+        self.client = self.client_for(self.student)
+
+    def chat(self, *texts):
+        return {
+            "title": texts[0],
+            "messages": [
+                {"role": "user" if i % 2 == 0 else "assistant", "text": t} for i, t in enumerate(texts)
+            ],
+        }
+
+    def test_saved_chat_shows_on_another_device(self):
+        response = self.client.put(f"{SESSIONS}1731571200000/", self.chat("How do I enroll?", "Apply online."), format="json")
+        self.assertEqual(response.status_code, 201)
+        # Same account, different browser.
+        other_device = self.client_for(self.student)
+        listed = other_device.get(SESSIONS).data
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["id"], "1731571200000")
+        self.assertEqual(listed[0]["title"], "How do I enroll?")
+        self.assertEqual(listed[0]["messages"][1], {"role": "assistant", "text": "Apply online."})
+
+    def test_saving_again_updates_the_same_chat(self):
+        self.client.put(f"{SESSIONS}abc/", self.chat("Q1", "A1"), format="json")
+        response = self.client.put(f"{SESSIONS}abc/", self.chat("Q1", "A1", "Q2", "A2"), format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ChatSession.objects.count(), 1)
+        self.assertEqual(len(self.client.get(SESSIONS).data[0]["messages"]), 4)
+
+    def test_copying_old_chats_never_overwrites(self):
+        self.client.put(f"{SESSIONS}abc/", self.chat("Q1", "A1", "Q2", "A2"), format="json")
+        response = self.client.put(f"{SESSIONS}abc/?only_if_new=1", self.chat("Q1"), format="json")
+        self.assertEqual(len(response.data["messages"]), 4)
+
+    def test_only_the_app_fields_are_kept(self):
+        body = {"title": "Q", "messages": [
+            {"role": "user", "text": "Q"},
+            {"role": "assistant", "text": "A", "logId": 5, "feedback": "up", "canRate": True, "ticketId": 9,
+             "ticketCode": "OSA1", "suggestions": ["x", 3], "question": "Q?", "evil": "<script>"},
+            {"role": "assistant", "text": "Can't reach ChatDesk", "isError": True},
+        ]}
+        saved = self.client.put(f"{SESSIONS}abc/", body, format="json").data["messages"]
+        self.assertEqual(len(saved), 2)
+        self.assertEqual(saved[1], {"role": "assistant", "text": "A", "logId": 5, "feedback": "up", "canRate": True,
+                                    "ticketId": 9, "ticketCode": "OSA1", "suggestions": ["x"], "question": "Q?"})
+
+    def test_bad_input_is_refused(self):
+        for client_id, body in (
+            ("abc", {"title": "Q", "messages": [{"role": "system", "text": "x"}]}),
+            ("abc", {"title": "Q", "messages": [{"role": "user", "text": "x" * 6001}]}),
+            ("bad id!", self.chat("Q")),
+        ):
+            self.assertEqual(self.client.put(f"{SESSIONS}{client_id}/", body, format="json").status_code, 400)
+
+    def test_students_only_see_and_delete_their_own(self):
+        self.client.put(f"{SESSIONS}abc/", self.chat("Mine"), format="json")
+        other = self.client_for(self.make_user("other@example.com"))
+        self.assertEqual(other.get(SESSIONS).data, [])
+        self.assertEqual(other.delete(f"{SESSIONS}abc/").status_code, 204)
+        self.assertEqual(ChatSession.objects.count(), 1)
+        admin = self.client_for(self.make_user("admin@example.com", role=User.Role.SUPERADMIN))
+        self.assertEqual(admin.get(SESSIONS).status_code, 403)
+
+    def test_delete_removes_it_everywhere(self):
+        self.client.put(f"{SESSIONS}abc/", self.chat("Q"), format="json")
+        self.assertEqual(self.client.delete(f"{SESSIONS}abc/").status_code, 204)
+        self.assertEqual(self.client.get(SESSIONS).data, [])
+        # Deleting again (e.g. from a second phone) is fine.
+        self.assertEqual(self.client.delete(f"{SESSIONS}abc/").status_code, 204)
+
+    def test_oldest_chats_are_dropped_past_the_limit(self):
+        with mock.patch("inquiry_logs.history.MAX_SESSIONS", 3):
+            for i in range(5):
+                self.client.put(f"{SESSIONS}c{i}/", self.chat(f"Q{i}"), format="json")
+        self.assertEqual(sorted(ChatSession.objects.values_list("client_id", flat=True)), ["c2", "c3", "c4"])
+
+    def test_deleting_the_account_deletes_its_chats_but_keeps_logs(self):
+        self.client.put(f"{SESSIONS}abc/", self.chat("Q"), format="json")
+        InquiryLog.objects.create(user=self.student, user_message="Q", detected_intent="x", chatbot_response="A")
+        self.student.delete()
+        self.assertFalse(ChatSession.objects.exists())
+        self.assertEqual(InquiryLog.objects.count(), 1)
