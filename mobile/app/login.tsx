@@ -14,7 +14,7 @@ import { router } from "expo-router";
 import { AuthHeader } from "../components/auth-header";
 import { FieldError } from "../components/field-error";
 import { PressableScale } from "../components/pressable-scale";
-import { useAuth } from "../context/AuthContext";
+import { STAFF_ACCOUNT_MESSAGE, StaffAccountError, useAuth } from "../context/AuthContext";
 import { type FieldErrors, hasErrors, serverFieldErrors, validateEmail } from "../lib/validation";
 import { useTheme } from "../context/ThemeContext";
 import { KEYBOARD_DISMISS_MODE, useWebKeyboardInset } from "../lib/keyboard";
@@ -29,9 +29,13 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const { login, sessionExpired } = useAuth();
+  const { login, sessionExpired, staffSignedOut } = useAuth();
   const [errorMessage, setErrorMessage] = useState(
-    sessionExpired ? "Your session expired. Please log in again." : ""
+    staffSignedOut
+      ? STAFF_ACCOUNT_MESSAGE
+      : sessionExpired
+        ? "Your session expired. Please log in again."
+        : ""
   );
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -51,6 +55,10 @@ export default function LoginScreen() {
       await login(email.trim(), password);
       router.replace("/");
     } catch (error: any) {
+      if (error instanceof StaffAccountError) {
+        setErrorMessage(error.message);
+        return;
+      }
       // Login errors (wrong password, deactivated account) arrive under
       // details.non_field_errors; rate limits come as the message.
       const { general } = serverFieldErrors(error, "Unable to log in right now.");
