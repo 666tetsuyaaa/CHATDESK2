@@ -96,7 +96,7 @@ export default function UserFormModal({ initialUser, offices, onSave, onClose })
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
       <form
         onSubmit={handleSubmit}
         noValidate

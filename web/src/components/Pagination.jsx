@@ -1,14 +1,28 @@
+import { useRef } from "react";
+
 const PAGE_SIZE = 20;
 
 export default function Pagination({ page, count, onPageChange }) {
+  const barRef = useRef(null);
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
   if (totalPages <= 1) return null;
+
+  // A new page starts at the top of the list: the bar sits under the list,
+  // so after paging the admin was left at the bottom of the new page.
+  const goTo = (next) => {
+    onPageChange(next);
+    const list = barRef.current?.parentElement;
+    if (!list) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    list.style.scrollMarginTop = "16px";
+    list.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+  };
 
   const rangeStart = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const rangeEnd = Math.min(page * PAGE_SIZE, count);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
+    <div ref={barRef} className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-5 py-3">
       <p className="text-xs text-gray-500">
         Showing <span className="font-medium text-navy">{rangeStart}</span>
         {"–"}
@@ -18,7 +32,7 @@ export default function Pagination({ page, count, onPageChange }) {
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => onPageChange(page - 1)}
+          onClick={() => goTo(page - 1)}
           disabled={page <= 1}
           className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
         >
@@ -29,7 +43,7 @@ export default function Pagination({ page, count, onPageChange }) {
         </span>
         <button
           type="button"
-          onClick={() => onPageChange(page + 1)}
+          onClick={() => goTo(page + 1)}
           disabled={page >= totalPages}
           className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-navy transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
         >
