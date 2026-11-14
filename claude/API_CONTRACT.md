@@ -387,6 +387,27 @@ Optional ?days= (default 90, 1-365) and (Super Admin) ?office=<id> or
 # question is added or edited after it was last asked (it shows again if
 # students keep asking after that). office_id/office_name: the office most of
 # the group's questions went to, or null.
+## Chat History (mobile History menu)
+```text
+GET    /api/v1/chat/sessions/              - student only. Their newest 100 saved chats,
+                                             newest first: [{ id, title, messages, updated_at }]
+PUT    /api/v1/chat/sessions/{id}/         - student only. Save (create 201 / replace 200) one chat:
+                                             { "title": "...", "messages": [ ... ] }
+       ?only_if_new=1                       - keep an existing chat unchanged (used once to copy the
+                                             chats a browser saved before History moved to the server)
+DELETE /api/v1/chat/sessions/{id}/         - student only. 204 (also when already gone).
+```
+# id: the app's own chat id, 1-40 letters, digits, "_" or "-".
+# title: max 120 ("New chat" when blank). messages: max 300, each
+# { role: "user"|"assistant", text (max 6000) } plus optional logId, feedback
+# ("up"/"down"/null), canRate, ticketId, ticketTitle, ticketCode,
+# ticketAiResolved, suggestions (max 5), question. Other fields are dropped;
+# a message with isError: true isn't saved. Whole chat max 400 KB.
+# Only the student's own chats are ever reachable (someone else's id simply
+# isn't found). Saving a 101st chat drops the oldest. Throttle scope
+# "chat_history" (120/min). Stored in tbl_chat_sessions, deleted with the
+# student's account (their inquiry logs are kept, as before).
+
 ## Ticket Escalation
 {
   "ticket_id": 890,

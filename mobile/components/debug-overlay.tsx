@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Platform, StyleSheet, Text, View } from "react-native";
+import { runningBuild } from "../lib/appUpdate";
 
 const FLAG = "chatdesk_debug";
 
@@ -41,16 +42,30 @@ function headerChain() {
   return lines;
 }
 
+// Where the message box on screen is (the hidden tabs keep their own).
+function messageBox() {
+  const box = Array.from(document.querySelectorAll<HTMLElement>('textarea[placeholder="Message ChatDesk..."]')).find(
+    (e) => e.offsetParent !== null && e.getBoundingClientRect().width > 0
+  );
+  if (!box) return "box -";
+  const b = box.getBoundingClientRect();
+  return `box ${Math.round(b.top)}-${Math.round(b.bottom)}`;
+}
+
 function read() {
   const vv = window.visualViewport;
   const root = document.getElementById("root");
   const rootBox = root?.getBoundingClientRect();
   const active = document.activeElement as HTMLElement | null;
+  // Which version is running: a screenshot from an old open tab shows it.
+  const build = runningBuild()?.match(/entry-(\w{8})/)?.[1] ?? "dev";
   return [
+    `build ${build}`,
     `inner ${window.innerWidth}x${window.innerHeight}  page ${document.documentElement.clientHeight}`,
     `visible h ${vv ? Math.round(vv.height) : "-"} top ${vv ? Math.round(vv.offsetTop) : "-"}  scrollY ${Math.round(window.scrollY)}`,
     `root ${root?.style.position || "static"} top ${rootBox ? Math.round(rootBox.top) : "-"} h ${rootBox ? Math.round(rootBox.height) : "-"}`,
     `focus ${active?.tagName ?? "-"}${active?.getAttribute("placeholder") ? ` (${active.getAttribute("placeholder")})` : ""}`,
+    messageBox(),
     ...headerChain(),
   ];
 }

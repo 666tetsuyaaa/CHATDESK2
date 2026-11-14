@@ -20,7 +20,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { KeyboardEvent, ScrollViewInstance } from "react-native";
+import type { KeyboardEvent, ScrollViewInstance, TextInputInstance } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BotAvatar } from "../../components/bot-avatar";
@@ -35,9 +35,15 @@ import { useChat } from "../../context/ChatContext";
 import { useTheme } from "../../context/ThemeContext";
 import axiosClient from "../../lib/axiosClient";
 import { freshReplies } from "../../lib/freshReplies";
-import { KEYBOARD_DISMISS_MODE, useWebKeyboard } from "../../lib/keyboard";
+import {
+  KEYBOARD_DISMISS_MODE,
+  KEYBOARD_REST_ATTRIBUTE,
+  isTouchScreen,
+  useWebKeyboard,
+  webHomeIndicatorHeight,
+} from "../../lib/keyboard";
 import { MOTION } from "../../lib/motion";
-import { useTabBarHeight } from "../../lib/tabBar";
+import { TAB_BAR_HEIGHT, useTabBarHeight } from "../../lib/tabBar";
 import { colors as brandColors, type ThemePalette } from "../../theme/colors";
 import { useInstallHint } from "../../lib/installHint";
 import { WebHitArea } from "../../components/web-hit-area";
@@ -55,6 +61,17 @@ type Phase = {
   guidance_message: string;
   suggested_questions: string[];
 };
+
+const DISCLAIMER_MARGIN = 6;
+
+// Web: tapping Send mustn't take the focus from the message box. Moving the
+// focus rearranged the screen in the middle of the tap (the keyboard started
+// closing), so the button moved away before the tap finished. The message is
+// sent first; then the keyboard closes on its own (see handleSend).
+function keepTypingFocus(node: unknown) {
+  if (Platform.OS !== "web" || !node) return;
+  (node as HTMLElement).onmousedown = (event) => event.preventDefault();
+}
 
 export default function StudentChatScreen() {
   const { currentUser, logout } = useAuth();
@@ -96,6 +113,26 @@ export default function StudentChatScreen() {
   const isKeyboardOpen = Platform.OS === "web" ? webKeyboard.open : nativeKeyboardHeight > 0;
   // The tab bar floats over this screen (and hides while typing).
   const tabBarHeight = useTabBarHeight();
+  // The disclaimer under the message box (hidden while typing), with its margin.
+  const [disclaimerSpace, setDisclaimerSpace] = useState(0);
+  // Web: the space below the message box at rest - the home-indicator area
+  // (the screen's own bottom padding), the tab bar (which includes that area
+  // again) and the disclaimer. While typing it stays the same, so the box
+  // doesn't move when the keyboard starts to open; the app then reaches
+  // behind the keyboard by up to this much (lib/keyboard.ts), so the box
+  // stays still until the keyboard reaches it and then rides on it - and
+  // back down when it closes - like chat apps. Fixed numbers, not the
+  // safe-area values the layout library re-measures a moment after each
+  // change (that made the box twitch).
+  const restSpace = TAB_BAR_HEIGHT + 2 * webHomeIndicatorHeight() + disclaimerSpace;
+  const webTypingSpace = Platform.OS === "web" && webKeyboard.open ? restSpace : null;
+  // Web: the message box - Send closes the keyboard after sending, and the
+  // keyboard handling reads its resting space from it.
+  const inputRef = useRef<TextInputInstance>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    (inputRef.current as unknown as HTMLElement | null)?.setAttribute(KEYBOARD_REST_ATTRIBUTE, String(restSpace));
+  }, [restSpace]);
   const scrollViewRef = useRef<ScrollViewInstance>(null);
   // A reply taller than most of the screen is shown from its top, not its
   // end - the first steps of a long FAQ answer are the ones to read first.
@@ -280,6 +317,9 @@ export default function StudentChatScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setMessage("");
     sendMessage(trimmed);
+    // On a phone the keyboard closes after sending so the answer has room
+    // (Send no longer takes the focus itself - see the Send button).
+    if (Platform.OS === "web" && isTouchScreen()) inputRef.current?.blur();
   };
 
   const handleNewChat = () => {
@@ -302,7 +342,8 @@ export default function StudentChatScreen() {
         locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+      {/* While typing on the web, the bottom space is webTypingSpace instead. */}
+      <SafeAreaView style={styles.screen} edges={webTypingSpace === null ? ["top", "bottom"] : ["top"]}>
         {/* Tapping anywhere that isn't a button or the text box closes the
             keyboard. Buttons inside still get their own taps first. Native
             only - on web this would blur the input on every click. */}
@@ -471,7 +512,10 @@ export default function StudentChatScreen() {
           ) : null}
 
           <View
-            style={[styles.body, { paddingBottom: isKeyboardOpen ? keyboardHeight : tabBarHeight }]}
+            style={[
+              styles.body,
+              { paddingBottom: webTypingSpace ?? (isKeyboardOpen ? keyboardHeight : tabBarHeight) },
+            ]}
             onLayout={(e) => setBodyHeight(e.nativeEvent.layout.height)}
           >
             {messages.length === 0 ? (
@@ -769,6 +813,7 @@ export default function StudentChatScreen() {
                 FAQ answer, so tapping one would just open a ticket. */}
             <View style={styles.composer} onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}>
               <TextInput
+                ref={inputRef}
                 style={styles.input}
                 placeholder="Message ChatDesk..."
                 placeholderTextColor={colors.textMuted}
@@ -796,6 +841,7 @@ export default function StudentChatScreen() {
                 returnKeyType="send"
               />
               <Pressable
+                ref={keepTypingFocus}
                 style={({ pressed }) => [
                   styles.sendButton,
                   !canSend && !isSending && styles.sendButtonDisabled,
@@ -817,7 +863,12 @@ export default function StudentChatScreen() {
               </Pressable>
             </View>
             {!isKeyboardOpen ? (
-              <Text style={styles.disclaimer}>ChatDesk can make mistakes. Check important info with OSA.</Text>
+              <Text
+                style={styles.disclaimer}
+                onLayout={(e) => setDisclaimerSpace(e.nativeEvent.layout.height + DISCLAIMER_MARGIN)}
+              >
+                ChatDesk can make mistakes. Check important info with OSA.
+              </Text>
             ) : null}
           </View>
 
@@ -1248,6 +1299,6 @@ const createStyles = (colors: ThemePalette) =>
       fontFamily: "Montserrat_400Regular",
       fontSize: 11,
       color: "rgba(255,255,255,0.6)",
-      marginBottom: 6,
+      marginBottom: DISCLAIMER_MARGIN,
     },
   });

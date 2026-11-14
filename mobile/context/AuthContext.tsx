@@ -7,7 +7,7 @@ export type ChatDeskUser = {
   email: string;
   first_name: string;
   last_name: string;
-  role: "student" | "superadmin";
+  role: "student" | "superadmin" | "office_admin";
   course: string | null;
   school_id: string | null;
   is_email_verified: boolean;
@@ -34,7 +34,31 @@ type AuthContextValue = {
   // True after a session died on its own (not a manual logout), so the
   // login screen can say why the student is back there.
   sessionExpired: boolean;
+  // True when a saved session turned out to be a staff account (e.g. its
+  // role was changed) - the login screen shows STAFF_ACCOUNT_MESSAGE.
+  staffSignedOut: boolean;
 };
+
+// Admins and office staff use the web dashboard; the server only lets
+// student accounts chat, open tickets, etc.
+export const STAFF_ACCOUNT_MESSAGE =
+  "This app is for students. Admins and office staff, please use the ChatDesk admin dashboard.";
+
+export class StaffAccountError extends Error {
+  constructor() {
+    super(STAFF_ACCOUNT_MESSAGE);
+    this.name = "StaffAccountError";
+  }
+}
+
+const isStudent = (user: ChatDeskUser | null | undefined) => user?.role === "student";
+
+// Ends a staff session the app just received (best effort - it isn't kept).
+function signOutStaffSession(access: string, refresh: string) {
+  axiosClient
+    .post("/auth/logout/", { refresh }, { headers: { Authorization: `Bearer ${access}` } })
+    .catch(() => {});
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -42,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<ChatDeskUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [staffSignedOut, setStaffSignedOut] = useState(false);
 
   useEffect(() => {
     onSessionExpired(() => {
@@ -62,7 +87,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const { data } = await axiosClient.get<ChatDeskUser>("/auth/me/");
-        setCurrentUser(data);
+        if (isStudent(data)) {
+          setCurrentUser(data);
+        } else {
+          const refreshToken = await getRefreshToken();
+          await clearTokens();
+          if (refreshToken) signOutStaffSession(accessToken, refreshToken);
+          setStaffSignedOut(true);
+        }
       } catch {
         await clearTokens();
       } finally {
@@ -73,8 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const { data } = await axiosClient.post("/auth/login/", { email, password });
+    if (!isStudent(data.user)) {
+      signOutStaffSession(data.access, data.refresh);
+      throw new StaffAccountError();
+    }
     await saveTokens(data.access, data.refresh);
     setSessionExpired(false);
+    setStaffSignedOut(false);
     setCurrentUser(data.user);
     return data.user as ChatDeskUser;
   };
@@ -108,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ currentUser, isLoading, login, register, logout, updateCurrentUser, sessionExpired }}
+      value={{ currentUser, isLoading, login, register, logout, updateCurrentUser, sessionExpired, staffSignedOut }}
     >
       {children}
     </AuthContext.Provider>

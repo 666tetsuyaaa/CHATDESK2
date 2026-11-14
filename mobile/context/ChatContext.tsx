@@ -1,8 +1,17 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AppState, Platform } from "react-native";
 import { useAuth } from "./AuthContext";
 import { getAllPages } from "../lib/allPages";
 import axiosClient from "../lib/axiosClient";
+import {
+  type SyncState,
+  deleteRemoteSession,
+  fetchSessions,
+  loadSyncState,
+  storeSyncState,
+  uploadSession,
+} from "../lib/chatSync";
 import { freshReplies } from "../lib/freshReplies";
 
 export type ChatMessage = {
@@ -74,7 +83,14 @@ type ChatContextValue = {
   requestStaffFollowUp: (ticketId: number) => Promise<boolean>;
   startNewChat: () => void;
   resumeSession: (sessionId: string) => void;
+  // Deletes a chat from History - on this phone and the student's account.
+  deleteSession: (sessionId: string) => void;
 };
+
+// A changed chat is saved to the account this long after it last changed.
+const SAVE_DELAY_MS = 1200;
+// Coming back to the app checks for chats from other devices at most this often.
+const SYNC_EVERY_MS = 20 * 1000;
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
@@ -117,6 +133,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // Which user's saved chat has been restored - nothing is saved until then,
   // or the empty start-up state would overwrite the saved chat.
   const restoredKeyRef = useRef<string | null>(null);
+  // Each chat's messages as last saved to (or loaded from) the account, so
+  // only real changes are sent.
+  const savedRef = useRef<Record<string, string>>({});
+  const syncStateRef = useRef<SyncState | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const syncRef = useRef<(() => Promise<void>) | null>(null);
+  const lastSyncRef = useRef(0);
+  const [restoredChatKey, setRestoredChatKey] = useState<string | null>(null);
 
   useEffect(() => {
     restoredKeyRef.current = null;
@@ -131,7 +155,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           AsyncStorage.getItem(currentChatKey),
           AsyncStorage.getItem(activeChatKey),
         ]);
-        if (storedHistory) setHistory(JSON.parse(storedHistory));
+        if (storedHistory) {
+          const local = JSON.parse(storedHistory) as ChatSession[];
+          setHistory(local);
+          for (const session of local) savedRef.current[session.id] = JSON.stringify(session.messages);
+        }
         if (storedCurrent) {
           const current = JSON.parse(storedCurrent) as ChatMessage[];
           setMessages(current);
@@ -142,6 +170,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // Corrupted local cache - ignore and start fresh.
       } finally {
         restoredKeyRef.current = currentChatKey;
+        // Synced with the account once this has been shown (see below).
+        setRestoredChatKey(`${currentChatKey}@${Date.now()}`);
       }
     })();
   }, [storageKey, currentChatKey, activeChatKey]);
@@ -177,6 +207,129 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     if (activeSessionId) AsyncStorage.setItem(activeChatKey, activeSessionId).catch(() => {});
     else AsyncStorage.removeItem(activeChatKey).catch(() => {});
   }, [liveHistory, activeSessionId, storageKey, activeChatKey, currentChatKey]);
+
+  const userId = currentUser?.user_id ?? null;
+  // The latest values, for the sync below (it runs outside of rendering).
+  const latestRef = useRef({ liveHistory, activeSessionId, messages, isSending });
+  useEffect(() => {
+    latestRef.current = { liveHistory, activeSessionId, messages, isSending };
+  });
+
+  const syncState = async () => {
+    if (userId === null) return null;
+    if (!syncStateRef.current) syncStateRef.current = await loadSyncState(userId);
+    return syncStateRef.current;
+  };
+  const updateSyncState = (change: (state: SyncState) => SyncState) => {
+    if (userId === null || !syncStateRef.current) return;
+    syncStateRef.current = change(syncStateRef.current);
+    storeSyncState(userId, syncStateRef.current);
+  };
+
+  // Brings History in line with the account: sends what changed here
+  // (and, once, the chats this browser saved before), then shows the
+  // account's chats - including ones from other devices.
+  const syncHistory = async () => {
+    const state = await syncState();
+    if (!state) return;
+    lastSyncRef.current = Date.now();
+    const local = latestRef.current.liveHistory;
+    if (!state.copied) {
+      let allCopied = true;
+      // Oldest first: the account lists chats by when they were saved, so
+      // History keeps its order.
+      const oldestFirst = [...local].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+      for (const session of oldestFirst) {
+        if (!(await uploadSession(session, true))) allCopied = false;
+      }
+      if (allCopied) updateSyncState((s) => ({ ...s, copied: true }));
+    }
+    for (const id of [...state.saves]) {
+      const session = latestRef.current.liveHistory.find((item) => item.id === id);
+      if (!session || (await uploadSession(session))) {
+        if (session) savedRef.current[id] = JSON.stringify(session.messages);
+        updateSyncState((s) => ({ ...s, saves: s.saves.filter((item) => item !== id) }));
+      }
+    }
+    for (const id of [...state.deletes]) {
+      if (await deleteRemoteSession(id)) {
+        updateSyncState((s) => ({ ...s, deletes: s.deletes.filter((item) => item !== id) }));
+      }
+    }
+    const server = await fetchSessions();
+    if (!server) return; // offline - this phone's copy stays as it is
+    const pending = syncStateRef.current ?? state;
+    const shown = server.filter((session) => !pending.deletes.includes(session.id));
+    for (const session of shown) savedRef.current[session.id] = JSON.stringify(session.messages);
+    // Changed here but not saved yet (offline): kept until they can be.
+    const unsent = latestRef.current.liveHistory.filter(
+      (session) => pending.saves.includes(session.id) && !shown.some((item) => item.id === session.id)
+    );
+    setHistory([...unsent, ...shown]);
+    // The chat on screen, if it continued on another device or was deleted there.
+    const { activeSessionId: openId, messages: onScreen, isSending: busy } = latestRef.current;
+    if (!openId || busy || pending.saves.includes(openId)) return;
+    const there = shown.find((session) => session.id === openId);
+    if (there && !sameMessages(there.messages, realMessages(onScreen))) {
+      setMessages(there.messages);
+    } else if (!there && realMessages(onScreen).length > 0 && savedRef.current[openId] !== undefined) {
+      setActiveSessionId(null);
+      setMessages([]);
+    }
+  };
+  useEffect(() => {
+    syncRef.current = syncHistory;
+  });
+  // First sync after this phone's copy is on screen (so the chats it holds
+  // are the ones copied up).
+  useEffect(() => {
+    if (currentChatKey && restoredChatKey?.startsWith(`${currentChatKey}@`)) syncRef.current?.();
+  }, [restoredChatKey, currentChatKey]);
+  useEffect(() => {
+    syncStateRef.current = null;
+    savedRef.current = {};
+  }, [userId]);
+
+  // Coming back to the app: pick up chats from other devices.
+  useEffect(() => {
+    if (userId === null) return;
+    const onReturn = () => {
+      if (Date.now() - lastSyncRef.current > SYNC_EVERY_MS) syncRef.current?.();
+    };
+    if (Platform.OS === "web") {
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") onReturn();
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      return () => document.removeEventListener("visibilitychange", onVisibility);
+    }
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") onReturn();
+    });
+    return () => subscription.remove();
+  }, [userId]);
+
+  // The chat on screen changed (a question, an answer, a rating): save it to
+  // the account shortly after - once things settle, not for every change.
+  useEffect(() => {
+    if (userId === null || restoredKeyRef.current !== currentChatKey || !activeSessionId) return;
+    const entry = liveHistory.find((session) => session.id === activeSessionId);
+    if (!entry) return;
+    const json = JSON.stringify(entry.messages);
+    if (savedRef.current[entry.id] === json) return;
+    (async () => {
+      await syncState();
+      updateSyncState((s) => (s.saves.includes(entry.id) ? s : { ...s, saves: [...s.saves, entry.id] }));
+    })();
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      if (await uploadSession(entry)) {
+        savedRef.current[entry.id] = json;
+        updateSyncState((s) => ({ ...s, saves: s.saves.filter((item) => item !== entry.id) }));
+      }
+    }, SAVE_DELAY_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the chat changes
+  }, [liveHistory, activeSessionId, userId, currentChatKey]);
 
   // `base` replaces the chat before the question is added (used by retry,
   // to drop the failed attempt); otherwise the question is appended.
@@ -240,6 +393,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         text = data.details.message[0];
       } else if (status === 401) {
         text = "Your session expired. Please log in again.";
+      } else if (status === 403) {
+        // The server only lets student accounts chat.
+        text = "Chatting is only for student accounts. Please log in with your student account.";
+      } else if (status >= 500) {
+        text = "ChatDesk ran into a problem answering that. Please try again in a moment.";
       }
       // No reply at all, a timeout, a busy server or too many messages: the
       // same question can simply be sent again.
@@ -318,6 +476,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages(session.messages);
   };
 
+  // Deletes a chat here and from the account (on every device). A chat
+  // deleted while offline is deleted on the account once back online.
+  const deleteSession = (sessionId: string) => {
+    setHistory(liveHistory.filter((session) => session.id !== sessionId));
+    if (sessionId === activeSessionId) {
+      setActiveSessionId(null);
+      setMessages([]);
+    }
+    delete savedRef.current[sessionId];
+    (async () => {
+      await syncState();
+      updateSyncState((s) => ({
+        ...s,
+        saves: s.saves.filter((id) => id !== sessionId),
+        deletes: s.deletes.includes(sessionId) ? s.deletes : [...s.deletes, sessionId],
+      }));
+      if (await deleteRemoteSession(sessionId)) {
+        updateSyncState((s) => ({ ...s, deletes: s.deletes.filter((id) => id !== sessionId) }));
+      }
+    })();
+  };
+
   return (
     <ChatContext.Provider
       value={{
@@ -334,6 +514,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         requestStaffFollowUp,
         startNewChat,
         resumeSession,
+        deleteSession,
       }}
     >
       {children}
