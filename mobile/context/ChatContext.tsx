@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "./AuthContext";
 import { getAllPages } from "../lib/allPages";
 import axiosClient from "../lib/axiosClient";
@@ -45,6 +45,8 @@ const TITLE_MAX_LENGTH = 40;
 // What gets saved and sent as context: the real conversation, not errors.
 const realMessages = (messages: ChatMessage[]) => messages.filter((m) => !m.isError);
 
+const sameMessages = (a: ChatMessage[], b: ChatMessage[]) => JSON.stringify(a) === JSON.stringify(b);
+
 function makeTitle(messages: ChatMessage[]) {
   const firstUserMessage = messages.find((item) => item.role === "user")?.text ?? "New chat";
   return firstUserMessage.length > TITLE_MAX_LENGTH
@@ -55,6 +57,9 @@ function makeTitle(messages: ChatMessage[]) {
 type ChatContextValue = {
   messages: ChatMessage[];
   history: ChatSession[];
+  // The History entry of the chat on screen (highlighted in the side menu);
+  // null for a new chat that has no messages yet.
+  activeSessionId: string | null;
   isSending: boolean;
   offices: Office[];
   selectedOffice: Office | null;
@@ -74,6 +79,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const { currentUser } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [history, setHistory] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [offices, setOffices] = useState<Office[]>([]);
   const [selectedOffice, setSelectedOffice] = useState<Office | null>(null);
@@ -102,6 +108,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // lose it. It moves into History on "New chat" or when an older chat is
   // opened, as before.
   const currentChatKey = currentUser ? `chatdesk_current_chat_${currentUser.user_id}` : null;
+  // Which History entry the chat on screen is (so it stays highlighted and
+  // keeps updating the same entry after the app is reopened).
+  const activeChatKey = currentUser ? `chatdesk_active_chat_${currentUser.user_id}` : null;
   // Which user's saved chat has been restored - nothing is saved until then,
   // or the empty start-up state would overwrite the saved chat.
   const restoredKeyRef = useRef<string | null>(null);
@@ -110,22 +119,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     restoredKeyRef.current = null;
     setMessages([]);
     setHistory([]);
-    if (!storageKey || !currentChatKey) return;
+    setActiveSessionId(null);
+    if (!storageKey || !currentChatKey || !activeChatKey) return;
     (async () => {
       try {
-        const [storedHistory, storedCurrent] = await Promise.all([
+        const [storedHistory, storedCurrent, storedActive] = await Promise.all([
           AsyncStorage.getItem(storageKey),
           AsyncStorage.getItem(currentChatKey),
+          AsyncStorage.getItem(activeChatKey),
         ]);
         if (storedHistory) setHistory(JSON.parse(storedHistory));
-        if (storedCurrent) setMessages(JSON.parse(storedCurrent));
+        if (storedCurrent) {
+          const current = JSON.parse(storedCurrent) as ChatMessage[];
+          setMessages(current);
+          // A chat saved by an older version has no History entry yet - give it one.
+          if (current.length > 0) setActiveSessionId(storedActive || Date.now().toString());
+        }
       } catch {
         // Corrupted local cache - ignore and start fresh.
       } finally {
         restoredKeyRef.current = currentChatKey;
       }
     })();
-  }, [storageKey, currentChatKey]);
+  }, [storageKey, currentChatKey, activeChatKey]);
 
   useEffect(() => {
     if (!currentChatKey || restoredKeyRef.current !== currentChatKey) return;
@@ -134,12 +150,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, [messages, currentChatKey]);
 
-  const persistHistory = async (next: ChatSession[]) => {
-    setHistory(next);
-    if (storageKey) {
-      await AsyncStorage.setItem(storageKey, JSON.stringify(next));
-    }
-  };
+  // History as shown: the saved chats, with the chat on screen kept up to
+  // date in its own entry (moved to the top when it gets new messages, like
+  // ChatGPT). Opening a chat from History doesn't change it, so it stays
+  // where it is - highlighted.
+  const liveHistory = useMemo(() => {
+    const saved = realMessages(messages);
+    if (!activeSessionId || saved.length === 0) return history;
+    const existing = history.find((session) => session.id === activeSessionId);
+    if (existing && sameMessages(existing.messages, saved)) return history;
+    const entry: ChatSession = {
+      id: activeSessionId,
+      title: makeTitle(saved),
+      messages: saved,
+      updatedAt: new Date().toISOString(),
+    };
+    return [entry, ...history.filter((session) => session.id !== activeSessionId)];
+  }, [history, activeSessionId, messages]);
+
+  useEffect(() => {
+    if (!storageKey || !activeChatKey || restoredKeyRef.current !== currentChatKey) return;
+    AsyncStorage.setItem(storageKey, JSON.stringify(liveHistory)).catch(() => {});
+    if (activeSessionId) AsyncStorage.setItem(activeChatKey, activeSessionId).catch(() => {});
+    else AsyncStorage.removeItem(activeChatKey).catch(() => {});
+  }, [liveHistory, activeSessionId, storageKey, activeChatKey, currentChatKey]);
 
   // `base` replaces the chat before the question is added (used by retry,
   // to drop the failed attempt); otherwise the question is appended.
@@ -150,6 +184,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       .slice(-6)
       .map((m) => ({ role: m.role, text: m.text }));
 
+    // A new chat gets its History entry with its first message.
+    if (!activeSessionId) setActiveSessionId(Date.now().toString());
     setMessages((prev) => [...(base ?? prev), { role: "user", text: trimmed }]);
     setIsSending(true);
     try {
@@ -255,38 +291,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // The chat on screen is already in History (see liveHistory), so a new
+  // chat just starts empty.
   const startNewChat = () => {
-    const saved = realMessages(messages);
-    if (saved.length > 0) {
-      const session: ChatSession = {
-        id: Date.now().toString(),
-        title: makeTitle(saved),
-        messages: saved,
-        updatedAt: new Date().toISOString(),
-      };
-      persistHistory([session, ...history]);
-    }
+    setHistory(liveHistory);
+    setActiveSessionId(null);
     setMessages([]);
     setSelectedOffice(null);
   };
 
+  // Opens a chat from History. It stays in the list (highlighted as the one
+  // on screen); the chat that was open stays there too.
   const resumeSession = (sessionId: string) => {
-    const session = history.find((item) => item.id === sessionId);
+    const session = liveHistory.find((item) => item.id === sessionId);
     if (!session) return;
-
-    let nextHistory = history.filter((item) => item.id !== sessionId);
-    const saved = realMessages(messages);
-    if (saved.length > 0) {
-      const currentSession: ChatSession = {
-        id: Date.now().toString(),
-        title: makeTitle(saved),
-        messages: saved,
-        updatedAt: new Date().toISOString(),
-      };
-      nextHistory = [currentSession, ...nextHistory];
-    }
-
-    persistHistory(nextHistory);
+    setHistory(liveHistory);
+    setActiveSessionId(sessionId);
     setMessages(session.messages);
   };
 
@@ -294,7 +314,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     <ChatContext.Provider
       value={{
         messages,
-        history,
+        history: liveHistory,
+        activeSessionId,
         isSending,
         offices,
         selectedOffice,

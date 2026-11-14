@@ -498,22 +498,28 @@ export default function TicketsScreen() {
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
             {viewingTicket ? (
               <>
+                {/* Code and status share a line (the badge wraps under the
+                    code on narrow phones); the title gets the full width
+                    below - squeezed beside a long badge it broke into one
+                    letter per line. */}
                 <View style={styles.modalHeader}>
                   <View style={styles.modalHeaderText}>
-                    <Text style={styles.modalEyebrow}>{viewingTicket.ticket_code}</Text>
+                    <View style={styles.modalMetaRow}>
+                      <Text style={styles.modalEyebrow}>{viewingTicket.ticket_code}</Text>
+                      <View style={styles.modalStatusBadge}>
+                        <MaterialIcons
+                          name={viewingTicket.status === "resolved" ? "check-circle" : "schedule"}
+                          size={14}
+                          color={colors.accentText}
+                        />
+                        <Text style={styles.modalStatusText}>
+                          {viewingTicket.is_ai_resolved
+                            ? "Answered by ChatDesk"
+                            : STATUS_LABELS[viewingTicket.status] ?? viewingTicket.status}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={styles.modalTitle}>{viewingTicket.title}</Text>
-                  </View>
-                  <View style={styles.modalStatusBadge}>
-                    <MaterialIcons
-                      name={viewingTicket.status === "resolved" ? "check-circle" : "schedule"}
-                      size={14}
-                      color={colors.accentText}
-                    />
-                    <Text style={styles.modalStatusText}>
-                      {viewingTicket.is_ai_resolved
-                        ? "Answered by ChatDesk"
-                        : STATUS_LABELS[viewingTicket.status] ?? viewingTicket.status}
-                    </Text>
                   </View>
                   <PressableScale
                     onPress={closeTicket}
@@ -948,12 +954,18 @@ const createStyles = (colors: ThemePalette) =>
       gap: 12,
       marginBottom: 16,
     },
-    modalHeaderText: { flex: 1 },
+    modalHeaderText: { flex: 1, minWidth: 0 },
+    modalMetaRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 6,
+    },
     modalEyebrow: {
       fontFamily: "Montserrat_400Regular",
       fontSize: 12,
       color: colors.textMuted,
-      marginBottom: 2,
     },
     modalTitle: {
       fontFamily: "PlusJakartaSans_700Bold",

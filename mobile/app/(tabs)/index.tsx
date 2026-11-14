@@ -24,6 +24,7 @@ import type { KeyboardEvent, ScrollViewInstance } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BotAvatar } from "../../components/bot-avatar";
+import { FloatingLogo } from "../../components/floating-logo";
 import { BrandTitle } from "../../components/brand-title";
 import { NavMenu } from "../../components/nav-menu";
 import { PressableScale } from "../../components/pressable-scale";
@@ -472,7 +473,7 @@ export default function StudentChatScreen() {
               >
                 {welcomeLevel < 3 ? (
                   <View style={styles.welcomeContent} onLayout={(e) => recordWelcomeHeight(e.nativeEvent.layout.height)}>
-                    {welcomeLevel < 2 ? <BotAvatar size={welcomeLevel === 0 ? 64 : 40} /> : null}
+                    {welcomeLevel < 2 ? <FloatingLogo size={welcomeLevel === 0 ? 76 : 48} /> : null}
                     <Text style={[styles.welcomeGreeting, welcomeLevel === 2 && styles.welcomeGreetingTight]}>
                       Hi, {currentUser?.first_name ?? "there"} 👋
                     </Text>
@@ -730,11 +731,10 @@ export default function StudentChatScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Ask: ${question}`}
                     >
-                      <MaterialIcons name="auto-awesome" size={16} color={colors.gold} />
                       <Text style={styles.suggestionText} numberOfLines={2}>
                         {question}
                       </Text>
-                      <MaterialIcons name="north-east" size={16} color={colors.white} style={styles.suggestionChevron} />
+                      <MaterialIcons name="north-east" size={14} color={colors.white} style={styles.suggestionChevron} />
                     </Pressable>
                   </Animated.View>
                 ))}
@@ -1117,14 +1117,15 @@ const createStyles = (colors: ThemePalette) =>
       fontSize: 13,
       color: colors.white,
     },
-    suggestions: { paddingBottom: 12, gap: 8 },
+    suggestions: { paddingBottom: 10, gap: 6 },
     suggestionCard: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
-      paddingVertical: 13,
+      gap: 8,
+      // Lighter than before (was 13/14 padding, 14pt text, a sparkle icon).
+      paddingVertical: 9,
       paddingHorizontal: 14,
-      borderRadius: 16,
+      borderRadius: 14,
       // Brand-navy glass, so the white text stays readable even where the
       // background gradient is still light (top card in light mode).
       backgroundColor: `${colors.accent}CC`,
@@ -1135,8 +1136,8 @@ const createStyles = (colors: ThemePalette) =>
     suggestionText: {
       flex: 1,
       fontFamily: "Montserrat_400Regular",
-      fontSize: 14,
-      lineHeight: 19,
+      fontSize: 13,
+      lineHeight: 18,
       color: colors.white,
     },
     suggestionChevron: { opacity: 0.6 },

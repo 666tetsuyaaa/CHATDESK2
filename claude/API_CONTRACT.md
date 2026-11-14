@@ -101,6 +101,17 @@ Request: { "refresh": "jwt_refresh_token_string" } → Response 200: { "access":
 # Clients log out only on a 401/400 from this endpoint - a network error,
 # timeout or 5xx just fails that request and the next one tries again.
 
+### POST /api/v1/auth/password-change/
+Any logged-in user changes their own password.
+Request: { "current_password": "string", "new_password": "string" }
+Response 200: { "message": "Your password has been changed.", "access": "...", "refresh": "..." }
+# Signs the account out everywhere else (every existing refresh token stops
+# working); the client stores the returned tokens to stay logged in.
+# Response 400: details.current_password ("Your current password is
+# incorrect.") or details.new_password (8+ characters, the same password rules
+# as register, and different from the current one). 401 without login.
+# Throttled: 10/hour per user.
+
 ### POST /api/v1/auth/logout/
 Auth required. Blacklists the refresh token.
 Request: { "refresh": "jwt_refresh_token_string" } → Response 205.

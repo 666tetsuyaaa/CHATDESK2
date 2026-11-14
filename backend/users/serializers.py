@@ -196,6 +196,30 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         return value.lower().strip()
 
 
+class PasswordChangeSerializer(serializers.Serializer):
+    """POST /api/v1/auth/password-change/ - the logged-in user changes their
+    own password (current password required)."""
+
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError({"current_password": ["Your current password is incorrect."]})
+        if attrs["new_password"] == attrs["current_password"]:
+            raise serializers.ValidationError(
+                {"new_password": ["Choose a password different from your current one."]}
+            )
+        # Same rules as registering and resetting (not common, not all
+        # numbers, not too similar to the name/email).
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"new_password": list(error.messages)})
+        return attrs
+
+
 class PasswordResetConfirmSerializer(serializers.Serializer):
     """POST /api/v1/auth/password-reset/confirm/ - public."""
 

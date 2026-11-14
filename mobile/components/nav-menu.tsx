@@ -57,7 +57,7 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
   const { colors, isDark, toggleDarkMode } = useTheme();
   const { currentUser } = useAuth();
   const styles = createStyles(colors);
-  const { history, resumeSession, startNewChat } = useChat();
+  const { history, activeSessionId, resumeSession, startNewChat } = useChat();
   const { width } = useWindowDimensions();
   const panelWidth = width * PANEL_WIDTH_RATIO;
   const [isMounted, setIsMounted] = useState(visible);
@@ -190,17 +190,24 @@ export function NavMenu({ visible, onClose, userInitial, onLogout }: NavMenuProp
             </View>
           ) : (
             <ScrollView style={styles.historyList} contentContainerStyle={styles.historyListContent}>
-              {history.map((session) => (
-                <PressableScale pressedScale={0.98}
-                  key={session.id}
-                  style={styles.historyRow}
-                  onPress={() => handleResumeSession(session.id)}
-                >
-                  <Text style={styles.historyLabel} numberOfLines={1}>
-                    {session.title}
-                  </Text>
-                </PressableScale>
-              ))}
+              {history.map((session) => {
+                // The chat on screen stays in the list, highlighted (like ChatGPT).
+                const isOpen = session.id === activeSessionId;
+                return (
+                  <PressableScale pressedScale={0.98}
+                    key={session.id}
+                    style={[styles.historyRow, isOpen && styles.historyRowOpen]}
+                    onPress={() => handleResumeSession(session.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={session.title}
+                    accessibilityState={{ selected: isOpen }}
+                  >
+                    <Text style={[styles.historyLabel, isOpen && styles.historyLabelOpen]} numberOfLines={1}>
+                      {session.title}
+                    </Text>
+                  </PressableScale>
+                );
+              })}
             </ScrollView>
           )}
 
@@ -302,8 +309,10 @@ const createStyles = (colors: ThemePalette) =>
     },
     historyList: { flex: 1 },
     historyListContent: { paddingBottom: 12 },
-    historyRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+    historyRow: { paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10, marginBottom: 2 },
+    historyRowOpen: { backgroundColor: `${colors.accentText}1F` },
     historyLabel: { fontFamily: "Montserrat_400Regular", fontSize: 14, color: colors.textPrimary },
+    historyLabelOpen: { fontFamily: "Montserrat_700Bold", color: colors.accentText },
     historyEmpty: {
       fontFamily: "Montserrat_400Regular",
       fontSize: 13,

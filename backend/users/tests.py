@@ -583,3 +583,42 @@ class FourthBugReviewTests(BaseAPITestCase):
         self.assertGreaterEqual(int(rates["register"].split("/")[0]), 100)
         self.assertGreaterEqual(int(rates["login"].split("/")[0]), 100)
         self.assertEqual(rates["login_email"], "10/min")
+
+
+class PasswordChangeTests(BaseAPITestCase):
+    URL = "/api/v1/auth/password-change/"
+
+    def setUp(self):
+        super().setUp()
+        self.student = self.make_user("student@example.com")
+        login = self.client.post(LOGIN, {"email": "student@example.com", "password": PASSWORD}, format="json")
+        self.old_refresh = login.data["refresh"]
+        self.api = self.client_for(self.student)
+
+    def test_change_password(self):
+        response = self.api.post(self.URL, {"current_password": PASSWORD, "new_password": "Brand-new-Pass-2026"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.student.refresh_from_db()
+        self.assertTrue(self.student.check_password("Brand-new-Pass-2026"))
+        # Other devices are signed out; the new tokens work.
+        self.assertEqual(self.client.post(REFRESH, {"refresh": self.old_refresh}, format="json").status_code, 401)
+        self.assertEqual(self.client.post(REFRESH, {"refresh": response.data["refresh"]}, format="json").status_code, 200)
+        login = self.client.post(LOGIN, {"email": "student@example.com", "password": "Brand-new-Pass-2026"}, format="json")
+        self.assertEqual(login.status_code, 200)
+
+    def test_wrong_current_password(self):
+        response = self.api.post(self.URL, {"current_password": "not-it-at-all", "new_password": "Brand-new-Pass-2026"}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("current_password", response.data["details"])
+        self.student.refresh_from_db()
+        self.assertTrue(self.student.check_password(PASSWORD))
+
+    def test_weak_or_same_new_password(self):
+        for new in ("password123", "12345678901", PASSWORD):
+            response = self.api.post(self.URL, {"current_password": PASSWORD, "new_password": new}, format="json")
+            self.assertEqual(response.status_code, 400, new)
+            self.assertIn("new_password", response.data["details"])
+
+    def test_requires_login(self):
+        self.assertEqual(self.client.post(self.URL, {"current_password": "x", "new_password": "y"}, format="json").status_code, 401)
