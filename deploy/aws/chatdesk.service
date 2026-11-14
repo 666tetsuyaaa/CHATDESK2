@@ -13,10 +13,13 @@ User=ubuntu
 Group=www-data
 WorkingDirectory=/srv/chatdesk/backend
 # Settings come from /srv/chatdesk/backend/.env (read by python-decouple).
-# 2 workers fit the 1 GB t3.micro. The timeout covers a slow OpenAI reply
-# (up to ~30 s) and the calendar PDF import (up to ~3 min).
+# 2 workers fit the 1 GB t3.micro; 4 threads each let 8 requests run at
+# once (the admin dashboard asks for several things per page, and a chat
+# waiting on OpenAI no longer holds up everyone else) for little extra
+# memory. The timeout covers a slow OpenAI reply (up to ~30 s) and the
+# calendar PDF import (up to ~3 min).
 ExecStart=/srv/chatdesk/backend/venv/bin/gunicorn config.wsgi:application \
-    --bind 127.0.0.1:8000 --workers 2 --timeout 180 \
+    --bind 127.0.0.1:8000 --workers 2 --worker-class gthread --threads 4 --timeout 180 \
     --access-logfile - --error-logfile -
 Restart=always
 RestartSec=5

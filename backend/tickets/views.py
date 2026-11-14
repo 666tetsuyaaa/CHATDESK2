@@ -132,6 +132,26 @@ class TicketListCreateView(generics.ListCreateAPIView):
         return Response(TicketSerializer(ticket).data, status=http_status.HTTP_201_CREATED)
 
 
+class TicketCountsView(APIView):
+    """GET /api/v1/tickets/counts/ - superadmin or office_admin. The Tickets
+    page's tile numbers in one request (it used to fetch five ticket lists
+    just to read their counts): staff tickets (all, pending, resolved),
+    ChatDesk answers, and overdue. Same office scoping as the list."""
+
+    permission_classes = [IsOfficeStaff]
+
+    def get(self, request):
+        staff = Q(is_ai_resolved=False)
+        counts = visible_tickets(request.user).aggregate(
+            staff=Count("pk", filter=staff),
+            pending=Count("pk", filter=staff & Q(status=Ticket.Status.PENDING)),
+            resolved=Count("pk", filter=staff & Q(status=Ticket.Status.RESOLVED)),
+            ai=Count("pk", filter=Q(is_ai_resolved=True)),
+            overdue=Count("pk", filter=overdue_filter()),
+        )
+        return Response(counts)
+
+
 class TicketDetailView(generics.RetrieveUpdateAPIView):
     """
     GET   /api/v1/tickets/{ticket_id}/ - all roles; students restricted to

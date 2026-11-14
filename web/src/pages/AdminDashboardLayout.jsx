@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import Sidebar from "../components/Sidebar.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
+import { REFRESHED_EVENT } from "../api/responseCache.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../utils/theme.js";
 
@@ -62,6 +63,20 @@ export default function AdminDashboardLayout() {
   // Every page scrolls inside this one <main>, which stays mounted between
   // pages - so a new page opened at the previous page's scroll position.
   const mainRef = useRef(null);
+  // A section shown from memory got newer data from the server: draw the
+  // page again with it - unless the admin is typing or has a dialog open
+  // (they'd lose it); then the page shows the new data next time.
+  const [refreshCount, setRefreshCount] = useState(0);
+  useEffect(() => {
+    const onRefreshed = () => {
+      const active = document.activeElement;
+      const typing = active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+      const dialogOpen = document.querySelector('[role="dialog"], [aria-modal="true"]');
+      if (!typing && !dialogOpen) setRefreshCount((count) => count + 1);
+    };
+    window.addEventListener(REFRESHED_EVENT, onRefreshed);
+    return () => window.removeEventListener(REFRESHED_EVENT, onRefreshed);
+  }, []);
 
   useEffect(() => {
     setIsMobileSidebarOpen(false);
@@ -120,7 +135,7 @@ export default function AdminDashboardLayout() {
           </div>
         </header>
         <main ref={mainRef} className="app-scroll relative z-0 flex-1 overflow-y-auto p-5 sm:p-8">
-          <Outlet />
+          <Outlet key={refreshCount} />
         </main>
       </div>
     </div>

@@ -211,6 +211,11 @@ GET,/api/v1/colleges/,"Any authenticated user. Colleges and their course codes, 
 # - password (register + admin create): full password rules, as in register.
 
 ## FAQ (Knowledge Base)
+```text
+GET /api/v1/faqs/categories/ - superadmin or office_admin (Office Admin: their office's FAQs).
+    [ { "category": "Enrollment", "count": 46 }, ... ]   (categories with at least one FAQ)
+```
+
 {
   "faq_id": 105,
   "user_id": 2, 
@@ -409,6 +414,14 @@ DELETE /api/v1/chat/sessions/{id}/         - student only. 204 (also when alread
 # student's account (their inquiry logs are kept, as before).
 
 ## Ticket Escalation
+```text
+GET /api/v1/tickets/counts/ - superadmin or office_admin (same office scoping as the list).
+    { "staff": 4, "pending": 3, "resolved": 1, "ai": 1, "overdue": 1 }
+```
+# The Tickets page tiles in one request: staff = staff tickets (any status),
+# pending/resolved = staff tickets with that status, ai = ChatDesk answers,
+# overdue = as ?overdue=true. Each equals the matching list's "count".
+
 {
   "ticket_id": 890,
   "ticket_code": "GEN103126001",
