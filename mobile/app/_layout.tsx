@@ -19,11 +19,15 @@ import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ChatProvider } from "../context/ChatContext";
 import { ThemeProvider, useTheme } from "../context/ThemeContext";
 import { TicketBadgeProvider } from "../context/TicketBadgeContext";
+import { useWebAppUpdates } from "../lib/appUpdate";
 
 function RootNavigator() {
   const { currentUser, isLoading } = useAuth();
   const pathname = usePathname();
   const { colors, isDark } = useTheme();
+  // An open browser tab moves to a newly deployed version when the student
+  // comes back to it (web only).
+  useWebAppUpdates();
   // The navigation paints its own background behind every screen - by
   // default a light grey, which flashed white in dark mode while a tab or
   // screen was still appearing. Give it the app's own colors instead.

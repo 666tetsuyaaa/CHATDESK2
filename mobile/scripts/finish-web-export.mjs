@@ -19,7 +19,11 @@ import path from "node:path";
 
 const outDir = process.argv[2] ?? "dist";
 
-const VIEWPORT = "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover";
+// interactive-widget=resizes-content: Chrome on Android shrinks the page
+// itself as the keyboard slides up (instead of only covering it), so the
+// message box rides on the keyboard smoothly. iPhones ignore it.
+const VIEWPORT =
+  "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content";
 const HEAD_TAGS = [
   "<title>ChatDesk</title>",
   '<meta name="theme-color" content="#122254"/>',
