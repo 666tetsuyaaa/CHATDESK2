@@ -352,6 +352,8 @@ const OTHER_INTERACTION_LABELS = {
   off_topic: "Off-topic",
   unclear: "Unclear",
   duplicate_ticket: "Repeat of open ticket",
+  account_info: "Asked about their account",
+  asked_for_staff: "Asked for staff",
 };
 
 // Chat turns that aren't new questions - kept out of the topic chart and the
