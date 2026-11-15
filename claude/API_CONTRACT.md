@@ -553,6 +553,10 @@ host's scheduler (cron, or a Cron Job / Scheduled Task on the hosting
 platform). ADMIN_DASHBOARD_URL in backend/.env adds a link to the dashboard.
 
 ## Other endpoint behavior notes
+```text
+GET /api/v1/health/ - public, no login. { "status": "ok" } when the API and its database answer,
+    503 { "status": "unavailable" } otherwise. Pinged by deploy/aws/keep_db_awake.sh.
+```
 - Offices have a "code" (2-10 uppercase letters/numbers, unique) that starts
   their ticket codes. Optional on create/edit - left blank, one is generated
   from the name (e.g. "Registrar" -> REG). Changing it doesn't change
