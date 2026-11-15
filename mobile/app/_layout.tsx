@@ -8,9 +8,10 @@ import {
   router,
   Stack,
   usePathname,
+  type ErrorBoundaryProps,
 } from "expo-router";
 import { useEffect, useMemo } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { DebugOverlay } from "../components/debug-overlay";
 import { OfflineBanner } from "../components/offline-banner";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -93,6 +94,52 @@ function RootNavigator() {
     </NavigationThemeProvider>
   );
 }
+
+/**
+ * Any unexpected error in the app: a short "Something went wrong" screen
+ * with Reload instead of a blank page. Plain colors and no app context on
+ * purpose - it must work even if the theme or another provider is what
+ * failed. (Expo Router shows this for errors in any screen below.)
+ */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    console.error("ChatDesk app error:", error);
+  }, [error]);
+  const reload = () => {
+    // Web: a fresh load also picks up a newly deployed version.
+    if (Platform.OS === "web" && typeof window !== "undefined") window.location.reload();
+    else retry();
+  };
+  return (
+    <View style={errorStyles.screen} accessibilityRole="alert">
+      <Text style={errorStyles.brand}>
+        Chat<Text style={errorStyles.brandAccent}>Desk</Text>
+      </Text>
+      <Text style={errorStyles.title}>Something went wrong</Text>
+      <Text style={errorStyles.body}>
+        The app ran into a problem. Reloading usually fixes it - your chats are saved.
+      </Text>
+      <Pressable
+        onPress={reload}
+        style={({ pressed }) => [errorStyles.button, pressed && { opacity: 0.85 }]}
+        accessibilityRole="button"
+        accessibilityLabel="Reload ChatDesk"
+      >
+        <Text style={errorStyles.buttonText}>Reload</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const errorStyles = StyleSheet.create({
+  screen: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: "#122254" },
+  brand: { fontSize: 28, fontWeight: "700", color: "#FFFFFF" },
+  brandAccent: { color: "#F5A623" },
+  title: { marginTop: 22, fontSize: 20, fontWeight: "700", color: "#FFFFFF", textAlign: "center" },
+  body: { marginTop: 10, fontSize: 15, lineHeight: 22, color: "rgba(255,255,255,0.85)", textAlign: "center", maxWidth: 320 },
+  button: { marginTop: 24, backgroundColor: "#F5A623", borderRadius: 999, paddingVertical: 12, paddingHorizontal: 28 },
+  buttonText: { fontSize: 16, fontWeight: "700", color: "#122254" },
+});
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
