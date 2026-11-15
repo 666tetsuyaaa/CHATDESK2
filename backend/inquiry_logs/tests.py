@@ -580,3 +580,71 @@ class ChatHistoryTests(BaseAPITestCase):
         self.student.delete()
         self.assertFalse(ChatSession.objects.exists())
         self.assertEqual(InquiryLog.objects.count(), 1)
+
+
+class OfficeSuggestionTests(BaseAPITestCase):
+    """A message about an office in general gets that office's most-asked FAQ
+    questions as buttons."""
+
+    def setUp(self):
+        super().setUp()
+        self.student = self.make_user("student@example.com")
+        self.client = self.client_for(self.student)
+        # The seeded offices (offices/migrations/0002), plus one with no FAQs.
+        self.osa = Office.objects.get(code="OSA")
+        self.reg = Office.objects.get(code="REG")
+        self.gcs = Office.objects.get(code="GCS")
+        self.empty = Office.objects.create(name="Library", code="LIB")
+        for n, office in enumerate([self.osa] * 4 + [self.reg] * 2 + [self.gcs] * 2):
+            Faq.objects.create(intent_keyword=f"faq_{n}", question_text=f"Question {n} for {office.code}?",
+                               answer_content="An answer that is long enough.", category="General", office=office)
+        # OSA's most asked: faq_3 (3 times), then faq_1 (once).
+        for keyword in ("faq_3", "faq_3", "faq_3", "faq_1"):
+            InquiryLog.objects.create(user=self.student, user_message="q", detected_intent=keyword, chatbot_response="a")
+
+    def ask(self, message, fake, office=None):
+        body = {"message": message, "history": []}
+        if office is not None:
+            body["office"] = office.office_id
+        with mock.patch.object(services, "_client", fake):
+            return self.client.post(ASK, body, format="json")
+
+    def test_naming_an_office_shows_its_three_most_asked_questions(self):
+        fake = FakeOpenAI({})
+        response = self.ask("I have a question about OSA", fake)
+        self.assertEqual(fake.calls, 0)
+        self.assertEqual(response.data["detected_intent"], "office_suggestions")
+        self.assertEqual(response.data["reply"], services.OFFICE_SUGGEST_REPLY.format(office="Office of Student Affairs (OSA)"))
+        # Most asked first, then the office's other FAQs to make three.
+        self.assertEqual(response.data["suggested_questions"], ["Question 3 for OSA?", "Question 1 for OSA?", "Question 0 for OSA?"])
+        self.assertFalse(response.data["is_answer"])
+        self.assertFalse(Ticket.objects.exists())
+
+    def test_office_names_and_nicknames(self):
+        for message, code in (("Registrar", "REG"), ("registrar po?", "REG"), ("what does guidance do", "GCS"),
+                              ("may tanong ako sa student affairs", "OSA")):
+            response = self.ask(message, FakeOpenAI({}))
+            self.assertEqual(response.data["detected_intent"], "office_suggestions", message)
+            self.assertTrue(all(code in q for q in response.data["suggested_questions"]), message)
+
+    def test_a_bare_question_uses_the_picked_office(self):
+        fake = FakeOpenAI({})
+        response = self.ask("may tanong ako", fake, office=self.reg)
+        self.assertEqual(fake.calls, 0)
+        self.assertEqual(response.data["suggested_questions"], ["Question 4 for REG?", "Question 5 for REG?"])
+
+    def test_the_ai_can_spot_an_office_question_too(self):
+        fake = FakeOpenAI({"message_type": "office_overview", "office_code": "GCS"})
+        response = self.ask("ano ginagawa ng guidance office ninyo?", fake)
+        self.assertEqual(fake.calls, 1)
+        self.assertEqual(response.data["detected_intent"], "office_suggestions")
+        self.assertIn("Guidance & Counseling Services", response.data["reply"])
+
+    def test_a_specific_question_mentioning_an_office_is_answered_as_before(self):
+        fake = FakeOpenAI({"message_type": "faq_match", "matched_intent_keyword": "faq_4", "match_confidence": "high"})
+        response = self.ask("when does the registrar release grades?", fake)
+        self.assertEqual(response.data["detected_intent"], "faq_4")
+
+    def test_an_office_without_faqs_asks_to_clarify(self):
+        response = self.ask("Library", FakeOpenAI({}))
+        self.assertEqual(response.data["detected_intent"], "needs_clarification")

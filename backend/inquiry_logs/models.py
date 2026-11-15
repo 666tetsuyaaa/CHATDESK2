@@ -15,10 +15,13 @@ ACCOUNT_INFO_INTENT = "account_info"
 # "Talk to staff" / "produce a ticket" with no concern in it - pointed to
 # "Still need help?" instead of making a ticket.
 STAFF_REQUEST_INTENT = "asked_for_staff"
+# "I have a question about OSA" / "Registrar?" - answered with that office's
+# most-asked FAQ questions as buttons.
+OFFICE_SUGGEST_INTENT = "office_suggestions"
 # Small talk and housekeeping - not real inquiries for analytics purposes.
 NON_INQUIRY_INTENTS = (
     CONVERSATIONAL_INTENT, CLARIFICATION_INTENT, OFF_TOPIC_INTENT, UNCLEAR_INTENT,
-    ACCOUNT_INFO_INTENT, STAFF_REQUEST_INTENT,
+    ACCOUNT_INFO_INTENT, STAFF_REQUEST_INTENT, OFFICE_SUGGEST_INTENT,
 )
 SYSTEM_INTENTS = (ESCALATED_INTENT, DUPLICATE_TICKET_INTENT, *NON_INQUIRY_INTENTS)
 
