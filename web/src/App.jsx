@@ -70,7 +70,10 @@ export default function App() {
         <Route path="settings" element={<AdminSettings />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      {/* A mistyped address: the dashboard's start page - which itself sends
+          anyone not logged in to /login (a logged-in admin used to land on
+          the login form). */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

@@ -4,6 +4,7 @@ import { getOffices } from "../api/offices.js";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { buildReport, downloadReportCsv, openPrintableReport } from "../utils/analyticsReport.js";
 import { formatDuration, formatManila, secondsSince } from "../utils/dates.js";
 
 const FILTER_CLASS =
@@ -25,6 +26,7 @@ export default function AnalyticsOverview() {
   const [dateTo, setDateTo] = useState("");
   const [officeFilter, setOfficeFilter] = useState("");
   const [offices, setOffices] = useState([]);
+  const [reportNote, setReportNote] = useState("");
 
   // Filters apply as soon as they change, like on every other page.
   const loadData = () => {
@@ -54,6 +56,22 @@ export default function AnalyticsOverview() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The report covers exactly what's on screen (same filters).
+  const currentReport = () => {
+    let officeLabel = "All offices";
+    if (isOfficeAdmin) officeLabel = currentUser?.office_name || "Your office";
+    else if (officeFilter === "unassigned") officeLabel = "Unassigned";
+    else if (officeFilter) officeLabel = offices.find((o) => String(o.office_id) === officeFilter)?.name ?? "Selected office";
+    return buildReport(data, { dateFrom, dateTo, officeLabel }, currentUser);
+  };
+  const handleDownloadCsv = () => {
+    setReportNote("");
+    downloadReportCsv(currentReport());
+  };
+  const handlePrint = () => {
+    setReportNote(openPrintableReport(currentReport()) ? "" : "Your browser blocked the report tab - allow pop-ups for this site and try again.");
+  };
 
   const handleClearFilter = () => {
     setDateFrom("");
@@ -110,7 +128,30 @@ export default function AnalyticsOverview() {
         >
           Clear
         </button>
+        <div className="flex flex-wrap gap-2 sm:ml-auto">
+          <button
+            type="button"
+            onClick={handleDownloadCsv}
+            disabled={isLoading}
+            className="rounded-full border border-gray-200 px-4 py-1.5 text-sm text-navy transition-colors hover:border-gold disabled:opacity-50"
+          >
+            Download report (CSV)
+          </button>
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={isLoading}
+            className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-navy transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            Print / Save as PDF
+          </button>
+        </div>
       </div>
+      {reportNote ? (
+        <p role="alert" className="-mt-3 mb-5 text-sm text-red-600">
+          {reportNote}
+        </p>
+      ) : null}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
@@ -327,12 +368,12 @@ function IntentFrequencyChart({ items }) {
         return (
           <div key={item.intent} className="group">
             <div className="mb-2 flex items-center justify-between text-sm">
-              <span className="font-medium text-navy">{humanizeIntent(item.intent)}</span>
+              <span className="font-medium text-navy">{item.label ?? humanizeIntent(item.intent)}</span>
               <span className="font-semibold tabular-nums text-navy">{item.count}</span>
             </div>
             <div
               className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100"
-              title={`${humanizeIntent(item.intent)}: ${item.count} inquiries`}
+              title={`${item.label ?? humanizeIntent(item.intent)}: ${item.count} inquiries`}
             >
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[rgb(var(--c-bar-from))] to-[rgb(var(--c-bar-to))] transition-[filter] duration-150 group-hover:brightness-125"

@@ -98,6 +98,10 @@ class AnalyticsOverviewTests(BaseAPITestCase):
             {row["intent"] for row in data["intent_frequencies"]},
             {"scholarship_requirements", "unresolved_complex_query"},
         )
+        # Each topic in words: the FAQ's question, or a fixed name.
+        labels = {row["intent"]: row["label"] for row in data["intent_frequencies"]}
+        self.assertEqual(labels["unresolved_complex_query"], "Sent to staff")
+        self.assertNotEqual(labels["scholarship_requirements"], "scholarship_requirements")
         self.assertEqual(
             {row["intent"]: row["count"] for row in data["other_interactions"]},
             {"conversational": 2, "unclear": 1, "off_topic": 1, "duplicate_ticket": 1},

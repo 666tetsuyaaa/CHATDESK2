@@ -361,7 +361,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const parts: any[] = data.parts?.length ? data.parts : [data];
       const replies: ChatMessage[] = parts.map((part) => ({
         role: "assistant",
-        text: part.reply,
+        // Always text, so an odd answer can never break the chat (or the saved copy of it).
+        text: typeof part.reply === "string" ? part.reply : String(part.reply ?? ""),
         logId: part.log_id,
         feedback: null,
         canRate: Boolean(part.is_answer),
