@@ -344,14 +344,12 @@ export default function StudentChatScreen() {
       />
       {/* While typing on the web, the bottom space is webTypingSpace instead. */}
       <SafeAreaView style={styles.screen} edges={webTypingSpace === null ? ["top", "bottom"] : ["top"]}>
-        {/* Tapping anywhere that isn't a button or the text box closes the
-            keyboard. Buttons inside still get their own taps first. Native
-            only - on web this would blur the input on every click. */}
-        <Pressable
-          style={styles.screen}
-          onPress={Platform.OS === "web" ? undefined : Keyboard.dismiss}
-          accessible={false}
-        >
+        {/* A plain container: a tap-catcher around the whole screen (to
+            close the keyboard) took the finger before the message list
+            could scroll on Android. The list closes the keyboard itself
+            (taps on empty space, dragging); the welcome screen below has
+            its own tap. */}
+        <View style={styles.screen}>
           <View style={styles.header}>
             <Pressable
               onPress={() => setIsMenuOpen(true)}
@@ -523,6 +521,11 @@ export default function StudentChatScreen() {
                 entering={FadeIn.duration(MOTION.slow)}
                 style={styles.welcomeBlock}
                 onLayout={(e) => setWelcomeSpace(e.nativeEvent.layout.height)}
+                // Phones: a tap on the welcome screen (not on a button)
+                // closes the keyboard. Nothing scrolls here, so this can't
+                // block scrolling the way a whole-screen tap-catcher did.
+                onStartShouldSetResponder={() => Platform.OS !== "web"}
+                onResponderRelease={() => Keyboard.dismiss()}
               >
                 {welcomeLevel < 3 ? (
                   <View style={styles.welcomeContent} onLayout={(e) => recordWelcomeHeight(e.nativeEvent.layout.height)}>
@@ -878,7 +881,7 @@ export default function StudentChatScreen() {
             userInitial={userInitial}
             onLogout={logout}
           />
-        </Pressable>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -1235,6 +1238,8 @@ const createStyles = (colors: ThemePalette) =>
       borderRadius: 999,
       paddingHorizontal: 14,
       paddingVertical: 8,
+      // A long question wraps onto two lines instead of running off a narrow screen.
+      maxWidth: "100%",
     },
     chipPressed: { opacity: 0.6 },
     clarifyChipsRow: { marginTop: 8, paddingBottom: 4, paddingLeft: ASSISTANT_INDENT },

@@ -17,6 +17,7 @@ const OTHER_LABELS = {
   duplicate_ticket: "Repeat of open ticket",
   account_info: "Asked about their account",
   asked_for_staff: "Asked for staff",
+  office_suggestions: "Asked about an office",
 };
 
 export function topicLabel(intent) {

@@ -85,6 +85,7 @@ class FakeOpenAI:
                 "requested_details": [],
                 "duplicate_of_ticket_id": None,
                 "ticket_title": "Test Concern",
+                "office_code": None,
                 **question,
             }
             for question in questions

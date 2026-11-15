@@ -12,9 +12,11 @@ import re
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Count
 from openai import OpenAI
 
 from faqs.models import Faq
+from offices.models import Office
 from tickets.models import FALLBACK_TICKET_TITLE, Ticket
 
 from . import matching
@@ -25,8 +27,10 @@ from .models import (
     DUPLICATE_TICKET_INTENT,
     ESCALATED_INTENT,
     OFF_TOPIC_INTENT,
+    OFFICE_SUGGEST_INTENT,
     STAFF_REQUEST_INTENT,
     UNCLEAR_INTENT,
+    InquiryLog,
 )
 
 MODEL = "gpt-5.6-luna"
@@ -65,6 +69,30 @@ MORE_QUESTIONS_NOTE = (
 )
 
 ACCOUNT_DETAILS = ("name", "course", "school_id", "email")
+
+OFFICE_SUGGEST_REPLY = "Here are common questions for {office}. Tap one, or ask your own question."
+OFFICE_SUGGESTIONS = 3
+# What students call an office besides its name and code (by office code).
+OFFICE_ALIASES = {
+    "OSA": ["student affairs"],
+    "REG": ["registrar", "registrars", "records"],
+    "GCS": ["guidance", "counseling", "counselling", "counselor", "guidance office"],
+    "HS": ["clinic", "health", "health services", "medical", "nurse"],
+}
+# Words that don't say what the student wants: "I have a question about OSA"
+# minus these leaves just the office.
+FILLER_WORDS = set(
+    "i im i'm have a an the question questions about for to ask asking regarding re po sa ang ng mga may "
+    "tanong pangutana ako ko akong ug og naa mi kami we us our office offices of what whats does do is are can "
+    "you help me inquiry inquire inquiries concern please pls lang kay unta nako para hello hi good morning "
+    "afternoon evening there with in at on "
+    # "What does the Registrar do / offer?" - in English, Tagalog and Bisaya.
+    "services service offer offers provide provides function functions role job work works handle handles "
+    "tell know more info information something anything things your their "
+    "ano anong ginagawa gawa trabaho nila ninyo nyo inyo ba mo kung pwede puwede pede magtanong nagtatanong "
+    "itanong tanungin tungkol unsa unsay buhaton gibuhat ginabuhat buhat bahin mahitungod koy kong ko'y "
+    "pangutan-on mangutana nangutana diay man".split()
+)
 
 CLARIFY_WITH_SUGGESTIONS_REPLY = (
     "I want to make sure I get this right - did you mean one of these? If not, tell me a bit more about "
@@ -142,6 +170,11 @@ Knowledge base (FAQ intents - each with its question and a preview of the answer
 The student's open support tickets:
 {open_tickets}
 
+Offices (code: name):
+{offices}
+
+The office the student picked before asking: {picked_office}
+
 A message can ask more than one thing. In "questions", list each separate question or concern in the \
 order asked - usually just one. Split only when the student asks two or more different things that need \
 different answers ("What is HIMS and how do I create an account?" is two). Never split one concern explained \
@@ -169,7 +202,13 @@ answer was wrong or didn't help, without describing any concern of its own ("tal
 ticket, the answer is wrong", "I still need help", "that didn't answer my question"). If the message also \
 asks a question or describes a concern, ignore the request part and classify that question or concern by \
 the other rules instead.
-6. "faq_match" - read in context, the message asks for something one listed FAQ's ANSWER actually provides, \
+6. "office_overview" - the message only asks about an office in general - what it does, what one can \
+ask it, "I have a question about the Registrar", "Guidance?", "ano ginagawa ng OSA?" - with no specific \
+question or concern. Set office_code to that office (from the list above). If the student picked an office \
+and the message is only a general request for help with no topic ("I have a question", "may tanong ako", \
+"help po"), it is office_overview for the picked office. A specific question that mentions an office ("When \
+does the Registrar release grades?") is NOT office_overview.
+7. "faq_match" - read in context, the message asks for something one listed FAQ's ANSWER actually provides, \
 including follow-ups that move to a different or more specific FAQ, and personal situations whose answer is \
 a listed FAQ's general procedure. Judge by the answer preview, not just the question wording: an FAQ fits \
 only if its answer would genuinely answer the student. Set matched_intent_keyword and match_confidence:
@@ -177,20 +216,23 @@ only if its answer would genuinely answer the student. Set matched_intent_keywor
    - "medium": that FAQ is probably what they mean, but the message is broad or could also mean something \
 the answer doesn't cover.
    Never pick an FAQ whose answer doesn't fit just because it shares a keyword.
-7. "off_topic" - clearly has nothing to do with school, university life, or student concerns: weather, \
+8. "off_topic" - clearly has nothing to do with school, university life, or student concerns: weather, \
 jokes, celebrities, general trivia, coding or homework-solving help, chit-chat about unrelated things. Anything \
 about the student's wellbeing, safety, harassment, bullying, mental health, finances for school, or \
 discipline is NEVER off_topic - use needs_staff.
-8. "needs_clarification" - plausibly a school or student-affairs concern, but too vague to know what help is \
+9. "needs_clarification" - plausibly a school or student-affairs concern, but too vague to know what help is \
 needed (e.g. "I have a problem with my grades", "paano yung requirements?", "help with my account"). Put up to \
 3 listed FAQs the student most likely means in candidate_intent_keywords (empty if none fit). Do NOT use this \
 if the student already explained a specific situation, or if ChatDesk's previous message already asked them \
 to clarify - use needs_staff instead.
-9. "needs_staff" - everything else that needs a person: a specific school concern no listed FAQ answers, or \
+10. "needs_staff" - everything else that needs a person: a specific school concern no listed FAQ answers, or \
 a request that needs staff action (documents, records corrections, appeals, account problems, reports of \
 incidents, personal cases). It is decided by the concern itself, never by the student asking for a ticket.
 
 match_confidence: "high" or "medium" as above for faq_match; "none" for every other message_type.
+
+office_code: for office_overview, the office asked about (or the picked one); null for every other \
+message_type.
 
 requested_details: for account_info, the details asked for (any of "name", "course", "school_id", \
 "email"). Empty for every other message_type.
@@ -359,10 +401,18 @@ def _staff_result(message, ticket_title, open_tickets, duplicate_id=None) -> dic
     return _escalation_result(_clean_ticket_title(ticket_title))
 
 
-def _decide(decision, message, *, user, history, faqs_by_keyword, open_tickets) -> dict:
+def _decide(
+    decision, message, *, user, history, faqs_by_keyword, open_tickets, offices_by_code=None, picked_office=None
+) -> dict:
     """Turns one classifier decision (for one question) into a result."""
     message_type = decision["message_type"]
     ticket_title = decision.get("ticket_title")
+
+    if message_type == "office_overview":
+        asked = (offices_by_code or {}).get(decision.get("office_code")) or picked_office
+        if asked is not None:
+            return office_suggestions_result(asked)
+        message_type = "needs_clarification"
 
     if message_type == "unclear":
         return UNCLEAR_RESULT
@@ -409,6 +459,50 @@ def _decide(decision, message, *, user, history, faqs_by_keyword, open_tickets) 
         return _clarification_result(faqs_by_keyword, candidates)
 
     return _staff_result(message, ticket_title, open_tickets, decision.get("duplicate_of_ticket_id"))
+
+
+def office_top_questions(office, limit=OFFICE_SUGGESTIONS):
+    """The office's most-asked FAQ questions (by how often students got that
+    answer), topped up with its other FAQs when fewer have been asked."""
+    faqs = list(Faq.objects.filter(office=office).only("intent_keyword", "question_text", "created_at"))
+    asked = dict(
+        InquiryLog.objects.filter(detected_intent__in=[f.intent_keyword for f in faqs])
+        .values_list("detected_intent")
+        .annotate(n=Count("log_id"))
+    )
+    faqs.sort(key=lambda f: (-asked.get(f.intent_keyword, 0), f.created_at, f.intent_keyword))
+    return [f.question_text for f in faqs[:limit]]
+
+
+def office_suggestions_result(office) -> dict:
+    questions = office_top_questions(office)
+    if not questions:
+        return {"detected_intent": CLARIFICATION_INTENT, "reply": CLARIFY_REPLY, "suggested_questions": []}
+    return {
+        "detected_intent": OFFICE_SUGGEST_INTENT,
+        "reply": OFFICE_SUGGEST_REPLY.format(office=office.name),
+        "suggested_questions": questions,
+    }
+
+
+def _office_words(office) -> set:
+    words = set(_normalize_question(office.name).split()) | {office.code.lower()}
+    for alias in OFFICE_ALIASES.get(office.code, []):
+        words |= set(alias.split())
+    return words - {"office", "of", "and", "the"}
+
+
+def _office_named_only(message, offices, picked_office):
+    """The office a message is only about ("OSA", "I have a question about
+    the Registrar", "what does guidance do"), or the picked office for a bare
+    "I have a question"; None when the message says anything more."""
+    words = [w for w in _normalize_question(message).split() if w not in FILLER_WORDS]
+    if not words:
+        return picked_office
+    for office in offices:
+        if set(words) <= _office_words(office):
+            return office
+    return None
 
 
 def _single(result, message) -> dict:
@@ -460,6 +554,13 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
     if not faqs_by_keyword:
         return _single(_staff_result(message, None, open_tickets), message)
 
+    # "OSA", "I have a question about the Registrar", or "I have a question"
+    # with an office picked: that office's common questions, no AI call.
+    offices_by_code = {o.code: o for o in Office.objects.exclude(code="").order_by("name")}
+    named = _office_named_only(message, offices_by_code.values(), office)
+    if named is not None:
+        return _single(office_suggestions_result(named), message)
+
     # Quick actions and clarification chips send an FAQ's question verbatim -
     # answer those directly: always correct, consistent, and no AI call.
     normalized_message = _normalize_question(message)
@@ -492,6 +593,11 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
         for t in open_tickets
     ) or "(none)"
     keyword_enum = {"type": "string", "enum": list(faqs_by_keyword.keys())}
+    office_code_schema = (
+        {"anyOf": [{"type": "string", "enum": list(offices_by_code)}, {"type": "null"}]}
+        if offices_by_code
+        else {"type": "null"}
+    )
     ticket_id_schema = (
         {"anyOf": [{"type": "string", "enum": [str(t.ticket_id) for t in open_tickets]}, {"type": "null"}]}
         if open_tickets
@@ -518,11 +624,12 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
             },
             "duplicate_of_ticket_id": ticket_id_schema,
             "ticket_title": {"type": "string"},
+            "office_code": office_code_schema,
         },
         "required": [
             "question", "message_type", "matched_intent_keyword", "match_confidence",
             "candidate_intent_keywords", "requested_details",
-            "duplicate_of_ticket_id", "ticket_title",
+            "duplicate_of_ticket_id", "ticket_title", "office_code",
         ],
         "additionalProperties": False,
     }
@@ -533,7 +640,12 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": SYSTEM_PROMPT_TEMPLATE.format(faq_list=faq_list, open_tickets=open_ticket_list),
+                    "content": SYSTEM_PROMPT_TEMPLATE.format(
+                        faq_list=faq_list,
+                        open_tickets=open_ticket_list,
+                        offices="\n".join(f"- {o.code}: {o.name}" for o in offices_by_code.values()) or "(none)",
+                        picked_office=f"{office.name} ({office.code})" if office is not None else "(none)",
+                    ),
                 },
                 {"role": "user", "content": _build_classifier_input(message, history)},
             ],
@@ -557,7 +669,10 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
         # staff rather than 500ing - no student query should go unanswered.
         return _single(_staff_result(message, None, open_tickets), message)
 
-    decide = dict(user=user, history=history, faqs_by_keyword=faqs_by_keyword, open_tickets=open_tickets)
+    decide = dict(
+        user=user, history=history, faqs_by_keyword=faqs_by_keyword, open_tickets=open_tickets,
+        offices_by_code=offices_by_code, picked_office=office,
+    )
     if not decisions:
         return _single(UNCLEAR_RESULT, message)
     if len(decisions) == 1:

@@ -10,6 +10,7 @@ from .models import (
     DUPLICATE_TICKET_INTENT,
     ESCALATED_INTENT,
     OFF_TOPIC_INTENT,
+    OFFICE_SUGGEST_INTENT,
     STAFF_REQUEST_INTENT,
     UNCLEAR_INTENT,
     InquiryLog,
@@ -26,6 +27,7 @@ INTENT_LABELS = {
     UNCLEAR_INTENT: "Unclear message",
     ACCOUNT_INFO_INTENT: "Asked about their account",
     STAFF_REQUEST_INTENT: "Asked for staff (pointed to Still need help)",
+    OFFICE_SUGGEST_INTENT: "Asked about an office (shown its common questions)",
 }
 
 

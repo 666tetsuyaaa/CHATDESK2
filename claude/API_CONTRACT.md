@@ -243,7 +243,8 @@ DELETE,/api/v1/faqs/{faq_id}/,admin,Remove obsolete FAQ.
 # underscores, no spaces; unique ignoring capitals ("Enrollment" is refused
 # when "enrollment" exists); and not one of the chatbot's own outcome names
 # (unresolved_complex_query, duplicate_ticket, conversational,
-# needs_clarification, off_topic, unclear, account_info, asked_for_staff).
+# needs_clarification, off_topic, unclear, account_info, asked_for_staff,
+# office_suggestions).
 # question_text: max 300. All
 # return 400 under the field name.
 
@@ -328,6 +329,14 @@ Response 201 (AI Failed, Ticket Escalation Triggered):
 #                           answer's ticket), no new ticket. Ticket requests inside a
 #                           question ("What is HIMS? Produce a ticket.") are ignored and
 #                           the question is answered normally.
+#   office_suggestions    - the message only names an office or asks about it in general
+#                           ("I have a question about OSA", "Registrar", "ano ginagawa ng
+#                           Guidance?"), or is a bare "I have a question" with an office
+#                           picked: reply "Here are common questions for <office>. Tap one,
+#                           or ask your own question." with suggested_questions = that
+#                           office's 3 most-asked FAQ questions (topped up with its first
+#                           FAQs). Specific questions that mention an office are answered
+#                           normally. No ticket, not rated.
 #   unresolved_complex_query - new ticket created (201)
 #   duplicate_ticket      - same concern as one of the student's open tickets (200);
 #                           no new ticket, ticket_id/ticket_code/ticket_title point to the existing one

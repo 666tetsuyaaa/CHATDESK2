@@ -1,7 +1,7 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
-import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useTicketBadge } from "../../context/TicketBadgeContext";
 import { useWebKeyboard } from "../../lib/keyboard";
@@ -66,8 +66,22 @@ export default function TabsLayout() {
           </BlurView>
         ),
         // A point smaller on narrow phones (iPhone SE size) so "Announcements"
-        // isn't cut off.
+        // isn't cut off. The installed app also follows the phone's own text
+        // size setting, which cut it to "Announcemen..." on some Androids: the
+        // label keeps its size there and shrinks to fit its tab if needed.
         tabBarLabelStyle: { fontFamily: "Montserrat_700Bold", fontSize: width < 360 ? 10 : 11, marginTop: 2 },
+        tabBarAllowFontScaling: false,
+        tabBarLabel: ({ color, children }) => (
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            allowFontScaling={false}
+            style={{ color, fontFamily: "Montserrat_700Bold", fontSize: width < 360 ? 10 : 11, marginTop: 2 }}
+          >
+            {children}
+          </Text>
+        ),
         // Without this, the tab bar stays reserved at the bottom when the
         // keyboard opens, which throws off each screen's own
         // KeyboardAvoidingView math - the chat input in particular would
