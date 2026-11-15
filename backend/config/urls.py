@@ -3,8 +3,11 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from .health import HealthView
+
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/v1/health/", HealthView.as_view(), name="health"),
     # Auth endpoints per claude/API_CONTRACT.md: register, login, token/refresh, logout, me.
     path("api/v1/auth/", include("users.urls")),
     path("api/v1/", include("users.management_urls")),

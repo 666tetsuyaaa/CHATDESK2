@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ChatDesk",
-    "slug": "mobile",
+    "slug": "chatdesk",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +17,9 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "ph.edu.ustp.chatdesk",
+      "versionCode": 1
     },
     "web": {
       "output": "static",
@@ -44,7 +46,13 @@
       "expo-secure-store",
       "expo-image",
       "expo-web-browser",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ChatDesk uses your photos so you can choose a profile picture."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
