@@ -3,7 +3,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from config.query_params import date_param, office_param
+from faqs.models import Faq
 from inquiry_logs.models import DUPLICATE_TICKET_INTENT, NON_INQUIRY_INTENTS, InquiryLog
+from inquiry_logs.serializers import intent_label
 from offices.models import Office
 from tickets.models import Ticket, overdue_cutoff, overdue_filter
 from users.colleges import filter_by_college
@@ -135,9 +137,17 @@ class AnalyticsOverviewView(APIView):
             logs = logs.filter(timestamp__date__lte=date_to)
             tickets = tickets.filter(created_at__date__lte=date_to)
 
+        # "label": what the topic is in words - the FAQ's own question, or a
+        # fixed name like "Sent to staff" (the page and the reports show it).
+        faq_questions = dict(Faq.objects.values_list("intent_keyword", "question_text"))
+
         def frequencies(queryset):
             return [
-                {"intent": row["detected_intent"], "count": row["count"]}
+                {
+                    "intent": row["detected_intent"],
+                    "label": intent_label(row["detected_intent"], faq_questions),
+                    "count": row["count"],
+                }
                 for row in queryset.values("detected_intent")
                                    .annotate(count=Count("detected_intent"))
                                    .order_by("-count")
