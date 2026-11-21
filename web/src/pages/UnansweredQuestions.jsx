@@ -3,6 +3,7 @@ import { createFaq } from "../api/faqs.js";
 import { getUnansweredQuestions } from "../api/inquiryLogs.js";
 import { getOffices } from "../api/offices.js";
 import FaqFormModal from "../components/FaqFormModal.jsx";
+import Pagination, { pageSlice } from "../components/Pagination.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { formatManila } from "../utils/dates.js";
@@ -28,6 +29,7 @@ export default function UnansweredQuestions() {
   const [error, setError] = useState(null);
   const [draftGroup, setDraftGroup] = useState(null);
   const [notice, setNotice] = useState("");
+  const [page, setPage] = useState(1);
 
   const load = () => {
     setIsLoading(true);
@@ -41,6 +43,7 @@ export default function UnansweredQuestions() {
   };
 
   useEffect(() => {
+    setPage(1);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, officeFilter]);
@@ -61,6 +64,8 @@ export default function UnansweredQuestions() {
   if (error) return <ErrorState message={error} />;
 
   const groups = data?.groups ?? [];
+  const lastPage = Math.max(1, Math.ceil(groups.length / 20));
+  const shownPage = Math.min(page, lastPage);
 
   return (
     <section>
@@ -104,8 +109,9 @@ export default function UnansweredQuestions() {
             {data.total_questions} {data.total_questions === 1 ? "question" : "questions"} in {groups.length}{" "}
             {groups.length === 1 ? "group" : "groups"}
           </p>
+          <div>
           <ol className="flex flex-col gap-3">
-            {groups.map((group) => (
+            {pageSlice(groups, shownPage).map((group) => (
               <li
                 key={`${group.question}-${group.last_asked_at}`}
                 className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5"
@@ -143,6 +149,10 @@ export default function UnansweredQuestions() {
               </li>
             ))}
           </ol>
+          <div className="mt-3 overflow-clip rounded-2xl border border-gray-200 bg-white empty:hidden">
+            <Pagination page={shownPage} count={groups.length} onPageChange={setPage} />
+          </div>
+          </div>
         </>
       )}
 

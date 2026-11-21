@@ -9,19 +9,23 @@ FAQ's own answer_content or one of the fixed messages below.
 
 import json
 import re
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
 from django.db.models import Count
+from django.utils import timezone
 from openai import OpenAI
 
 from faqs.models import Faq
 from offices.models import Office
+from phases.models import SchoolPhase
 from tickets.models import FALLBACK_TICKET_TITLE, Ticket
 
 from . import matching
 from .models import (
     ACCOUNT_INFO_INTENT,
+    CALENDAR_INTENT,
     CLARIFICATION_INTENT,
     CONVERSATIONAL_INTENT,
     DUPLICATE_TICKET_INTENT,
@@ -175,6 +179,9 @@ Offices (code: name):
 
 The office the student picked before asking: {picked_office}
 
+School calendar (from the Phases page - id: period, dates; today is {today}):
+{calendar}
+
 A message can ask more than one thing. In "questions", list each separate question or concern in the \
 order asked - usually just one. Split only when the student asks two or more different things that need \
 different answers ("What is HIMS and how do I create an account?" is two). Never split one concern explained \
@@ -208,7 +215,12 @@ question or concern. Set office_code to that office (from the list above). If th
 and the message is only a general request for help with no topic ("I have a question", "may tanong ako", \
 "help po"), it is office_overview for the picked office. A specific question that mentions an office ("When \
 does the Registrar release grades?") is NOT office_overview.
-7. "faq_match" - read in context, the message asks for something one listed FAQ's ANSWER actually provides, \
+7. "school_calendar" - asks WHEN a period or event of the school year happens, and it is one of the \
+periods in the school calendar above ("When are the finals?", "kailan ang enrollment?", "anong petsa ang \
+midterm?", "is there class next week?" when a listed break covers it). Set phase_id to that period. A \
+question about how to do something during that period ("How do I enroll?") is NOT school_calendar - use the \
+rules below. If the period asked about is not in the calendar, use the rules below.
+8. "faq_match" - read in context, the message asks for something one listed FAQ's ANSWER actually provides, \
 including follow-ups that move to a different or more specific FAQ, and personal situations whose answer is \
 a listed FAQ's general procedure. Judge by the answer preview, not just the question wording: an FAQ fits \
 only if its answer would genuinely answer the student. Set matched_intent_keyword and match_confidence:
@@ -216,16 +228,16 @@ only if its answer would genuinely answer the student. Set matched_intent_keywor
    - "medium": that FAQ is probably what they mean, but the message is broad or could also mean something \
 the answer doesn't cover.
    Never pick an FAQ whose answer doesn't fit just because it shares a keyword.
-8. "off_topic" - clearly has nothing to do with school, university life, or student concerns: weather, \
+9. "off_topic" - clearly has nothing to do with school, university life, or student concerns: weather, \
 jokes, celebrities, general trivia, coding or homework-solving help, chit-chat about unrelated things. Anything \
 about the student's wellbeing, safety, harassment, bullying, mental health, finances for school, or \
 discipline is NEVER off_topic - use needs_staff.
-9. "needs_clarification" - plausibly a school or student-affairs concern, but too vague to know what help is \
+10. "needs_clarification" - plausibly a school or student-affairs concern, but too vague to know what help is \
 needed (e.g. "I have a problem with my grades", "paano yung requirements?", "help with my account"). Put up to \
 3 listed FAQs the student most likely means in candidate_intent_keywords (empty if none fit). Do NOT use this \
 if the student already explained a specific situation, or if ChatDesk's previous message already asked them \
 to clarify - use needs_staff instead.
-10. "needs_staff" - everything else that needs a person: a specific school concern no listed FAQ answers, or \
+11. "needs_staff" - everything else that needs a person: a specific school concern no listed FAQ answers, or \
 a request that needs staff action (documents, records corrections, appeals, account problems, reports of \
 incidents, personal cases). It is decided by the concern itself, never by the student asking for a ticket.
 
@@ -233,6 +245,8 @@ match_confidence: "high" or "medium" as above for faq_match; "none" for every ot
 
 office_code: for office_overview, the office asked about (or the picked one); null for every other \
 message_type.
+
+phase_id: for school_calendar, the id of the period asked about; null for every other message_type.
 
 requested_details: for account_info, the details asked for (any of "name", "course", "school_id", \
 "email"). Empty for every other message_type.
@@ -402,11 +416,18 @@ def _staff_result(message, ticket_title, open_tickets, duplicate_id=None) -> dic
 
 
 def _decide(
-    decision, message, *, user, history, faqs_by_keyword, open_tickets, offices_by_code=None, picked_office=None
+    decision, message, *, user, history, faqs_by_keyword, open_tickets, offices_by_code=None, picked_office=None,
+    phases_by_id=None,
 ) -> dict:
     """Turns one classifier decision (for one question) into a result."""
     message_type = decision["message_type"]
     ticket_title = decision.get("ticket_title")
+
+    if message_type == "school_calendar":
+        phase = (phases_by_id or {}).get(str(decision.get("phase_id")))
+        if phase is not None:
+            return calendar_result(phase)
+        message_type = "needs_staff"
 
     if message_type == "office_overview":
         asked = (offices_by_code or {}).get(decision.get("office_code")) or picked_office
@@ -459,6 +480,42 @@ def _decide(
         return _clarification_result(faqs_by_keyword, candidates)
 
     return _staff_result(message, ticket_title, open_tickets, decision.get("duplicate_of_ticket_id"))
+
+
+# Periods shown to the classifier: from 120 days ago on, soonest first.
+CALENDAR_LOOKBACK_DAYS = 120
+CALENDAR_MAX_PHASES = 40
+
+
+def calendar_phases():
+    since = timezone.localdate() - timedelta(days=CALENDAR_LOOKBACK_DAYS)
+    return list(SchoolPhase.objects.filter(end_date__gte=since).order_by("start_date")[:CALENDAR_MAX_PHASES])
+
+
+def _day(d) -> str:
+    return f"{d:%B} {d.day}, {d.year}"
+
+
+def _phase_dates(phase) -> str:
+    if phase.start_date == phase.end_date:
+        return _day(phase.start_date)
+    return f"{_day(phase.start_date)} to {_day(phase.end_date)}"
+
+
+def calendar_result(phase) -> dict:
+    """ "Final Examinations is from November 16 to 28, 2026." - in the right
+    tense for today, plus the phase's own message if it has one."""
+    today = timezone.localdate()
+    dates = _phase_dates(phase)
+    if phase.end_date < today:
+        reply = f"{phase.name} was on {dates}." if phase.start_date == phase.end_date else f"{phase.name} was from {dates}."
+    elif phase.start_date <= today:
+        reply = f"{phase.name} is happening now, until {_day(phase.end_date)}."
+    else:
+        reply = f"{phase.name} is on {dates}." if phase.start_date == phase.end_date else f"{phase.name} is from {dates}."
+    if phase.guidance_message:
+        reply += f"\n\n{phase.guidance_message}"
+    return {"detected_intent": CALENDAR_INTENT, "reply": reply, "suggested_questions": list(phase.suggested_questions or [])[:3]}
 
 
 def office_top_questions(office, limit=OFFICE_SUGGESTIONS):
@@ -598,6 +655,12 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
         if offices_by_code
         else {"type": "null"}
     )
+    phases_by_id = {str(p.phase_id): p for p in calendar_phases()}
+    phase_id_schema = (
+        {"anyOf": [{"type": "string", "enum": list(phases_by_id)}, {"type": "null"}]}
+        if phases_by_id
+        else {"type": "null"}
+    )
     ticket_id_schema = (
         {"anyOf": [{"type": "string", "enum": [str(t.ticket_id) for t in open_tickets]}, {"type": "null"}]}
         if open_tickets
@@ -611,7 +674,7 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
                 "type": "string",
                 "enum": [
                     "unclear", "conversational", "account_info", "other_person_info",
-                    "asks_for_staff", "faq_match", "off_topic",
+                    "asks_for_staff", "office_overview", "school_calendar", "faq_match", "off_topic",
                     "needs_clarification", "needs_staff",
                 ],
             },
@@ -625,11 +688,12 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
             "duplicate_of_ticket_id": ticket_id_schema,
             "ticket_title": {"type": "string"},
             "office_code": office_code_schema,
+            "phase_id": phase_id_schema,
         },
         "required": [
             "question", "message_type", "matched_intent_keyword", "match_confidence",
             "candidate_intent_keywords", "requested_details",
-            "duplicate_of_ticket_id", "ticket_title", "office_code",
+            "duplicate_of_ticket_id", "ticket_title", "office_code", "phase_id",
         ],
         "additionalProperties": False,
     }
@@ -645,6 +709,10 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
                         open_tickets=open_ticket_list,
                         offices="\n".join(f"- {o.code}: {o.name}" for o in offices_by_code.values()) or "(none)",
                         picked_office=f"{office.name} ({office.code})" if office is not None else "(none)",
+                        today=_day(timezone.localdate()),
+                        calendar="\n".join(
+                            f"- {p.phase_id}: {p.name}, {_phase_dates(p)}" for p in phases_by_id.values()
+                        ) or "(none)",
                     ),
                 },
                 {"role": "user", "content": _build_classifier_input(message, history)},
@@ -671,7 +739,7 @@ def answer_message(message: str, office=None, history=None, user=None) -> dict:
 
     decide = dict(
         user=user, history=history, faqs_by_keyword=faqs_by_keyword, open_tickets=open_tickets,
-        offices_by_code=offices_by_code, picked_office=office,
+        offices_by_code=offices_by_code, picked_office=office, phases_by_id=phases_by_id,
     )
     if not decisions:
         return _single(UNCLEAR_RESULT, message)

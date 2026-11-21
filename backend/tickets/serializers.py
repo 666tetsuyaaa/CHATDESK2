@@ -23,6 +23,9 @@ class TicketSerializer(serializers.ModelSerializer):
     # Filled by annotate_message_info() on list/detail querysets.
     message_count = serializers.SerializerMethodField()
     last_staff_message_at = serializers.SerializerMethodField()
+    # Who gave the answer the student has now: "chatdesk", "staff", or null
+    # while it's unanswered. The time is resolved_at.
+    answered_by = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -32,6 +35,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "office", "office_name", "issue_description", "conversation_context", "status", "resolution",
             "is_ai_resolved", "created_at", "reopened_at", "resolved_at",
             "waiting_since", "is_overdue", "message_count", "last_staff_message_at", "chatbot_answer",
+            "answered_by",
         ]
         read_only_fields = [
             "ticket_id", "ticket_code", "user_id", "log_id", "resolved_by", "office_name",
@@ -42,6 +46,11 @@ class TicketSerializer(serializers.ModelSerializer):
     def get_student_college(self, ticket):
         college = college_for_course(ticket.student_course)
         return college["name"] if college else None
+
+    def get_answered_by(self, ticket):
+        if ticket.status != Ticket.Status.RESOLVED or ticket.resolved_at is None:
+            return None
+        return "chatdesk" if ticket.is_ai_resolved else "staff"
 
     def get_message_count(self, ticket):
         if hasattr(ticket, "message_count"):

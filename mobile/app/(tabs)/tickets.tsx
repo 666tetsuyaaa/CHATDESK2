@@ -56,7 +56,18 @@ type Ticket = {
   chatbot_answer?: string | null;
   message_count?: number;
   last_staff_message_at?: string | null;
+  // Who gave the answer the student has now ("chatdesk" | "staff"); the time is resolved_at.
+  answered_by?: "chatdesk" | "staff" | null;
+  office_name?: string | null;
 };
+
+// "Answered by ChatDesk · Nov 20, 2026, 9:10 PM" / "Answered by Registrar staff · ..."
+function answeredText(ticket: Ticket): string | null {
+  if (!ticket.answered_by || !ticket.resolved_at) return null;
+  const who =
+    ticket.answered_by === "chatdesk" ? "ChatDesk" : ticket.office_name ? `${ticket.office_name} staff` : "staff";
+  return `Answered by ${who} · ${formatManila(ticket.resolved_at)}`;
+}
 
 type TicketMessage = {
   message_id: number;
@@ -451,6 +462,9 @@ export default function TicketsScreen() {
                     ) : null}
                     <Text style={styles.rowNumber}>{ticket.ticket_code}</Text>
                     <Text style={styles.rowDate}>{formatManila(ticket.created_at)}</Text>
+                    {answeredText(ticket) ? (
+                      <Text style={styles.rowAnswered}>{answeredText(ticket)}</Text>
+                    ) : null}
                   </View>
                   <View style={styles.statusColumn}>
                     {isResolved ? (
@@ -586,7 +600,7 @@ export default function TicketsScreen() {
                     {viewingTicket.resolved_at ? (
                       <TimelineRow
                         styles={styles}
-                        label={viewingTicket.is_ai_resolved ? "Answered" : "Resolved"}
+                        label={viewingTicket.is_ai_resolved ? "Answered by ChatDesk" : "Answered by staff"}
                         value={formatManila(viewingTicket.resolved_at)}
                       />
                     ) : null}
@@ -741,6 +755,7 @@ const createStyles = (colors: ThemePalette) =>
     filterChipText: { fontFamily: "Montserrat_700Bold", fontSize: 12, color: colors.textSecondary },
     filterChipTextActive: { color: colors.white },
     rowDate: { fontFamily: "Montserrat_400Regular", fontSize: 11, color: colors.textSecondary, marginTop: 1 },
+    rowAnswered: { fontFamily: "Montserrat_700Bold", fontSize: 11, color: colors.statusResolved, marginTop: 1 },
     newReplyPill: {
       alignSelf: "flex-start",
       marginTop: 4,

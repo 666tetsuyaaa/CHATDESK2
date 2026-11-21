@@ -6,6 +6,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
+import Pagination, { pageSlice } from "../components/Pagination.jsx";
 
 function phaseStatus(phase) {
   const today = new Date().toISOString().slice(0, 10);
@@ -24,6 +25,7 @@ export default function PhaseManagement() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [extractedCandidates, setExtractedCandidates] = useState(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractError, setExtractError] = useState("");
@@ -52,6 +54,11 @@ export default function PhaseManagement() {
       : phases;
     return [...filtered].sort((a, b) => a.start_date.localeCompare(b.start_date));
   }, [phases, search]);
+
+  // Back to page 1 when the search changes; stay in range after a delete.
+  useEffect(() => setPage(1), [search]);
+  const lastPage = Math.max(1, Math.ceil(visiblePhases.length / 20));
+  const shownPage = Math.min(page, lastPage);
 
   const handleConfirmDelete = async () => {
     if (!pendingDeletePhase) return;
@@ -196,7 +203,7 @@ export default function PhaseManagement() {
                 </td>
               </tr>
             ) : (
-              visiblePhases.map((phase) => {
+              pageSlice(visiblePhases, shownPage).map((phase) => {
                 const status = phaseStatus(phase);
                 return (
                   <tr
@@ -258,6 +265,7 @@ export default function PhaseManagement() {
           </tbody>
         </table>
         </ScrollTable>
+        <Pagination page={shownPage} count={visiblePhases.length} onPageChange={setPage} />
       </div>
 
       {isModalOpen && (

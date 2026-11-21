@@ -10,6 +10,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import Toast from "../components/Toast.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
+import Pagination, { pageSlice } from "../components/Pagination.jsx";
 import { formatManilaDate } from "../utils/dates.js";
 
 export default function AnnouncementManagement() {
@@ -22,6 +23,7 @@ export default function AnnouncementManagement() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const loadAnnouncements = () => {
     setIsLoading(true);
@@ -41,6 +43,11 @@ export default function AnnouncementManagement() {
       a.title.toLowerCase().includes(search.toLowerCase())
     );
   }, [announcements, search]);
+
+  // Back to page 1 when the search changes; stay in range after a delete.
+  useEffect(() => setPage(1), [search]);
+  const lastPage = Math.max(1, Math.ceil(visibleAnnouncements.length / 20));
+  const shownPage = Math.min(page, lastPage);
 
   const handleConfirmDelete = async () => {
     if (!pendingDeleteAnnouncement) return;
@@ -128,7 +135,7 @@ export default function AnnouncementManagement() {
                 </td>
               </tr>
             ) : (
-              visibleAnnouncements.map((announcement) => (
+              pageSlice(visibleAnnouncements, shownPage).map((announcement) => (
                 <tr
                   key={announcement.announcement_id}
                   className="border-b border-gray-50 text-navy transition-colors last:border-0 hover:bg-gray-50/80"
@@ -185,6 +192,7 @@ export default function AnnouncementManagement() {
           </tbody>
         </table>
         </ScrollTable>
+        <Pagination page={shownPage} count={visibleAnnouncements.length} onPageChange={setPage} />
       </div>
 
       {isModalOpen && (

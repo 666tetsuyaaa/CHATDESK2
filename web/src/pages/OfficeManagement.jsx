@@ -4,6 +4,7 @@ import OfficeFormModal from "../components/OfficeFormModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { ErrorState, LoadingState } from "../components/PageState.jsx";
 import ScrollTable from "../components/ScrollTable.jsx";
+import Pagination, { pageSlice } from "../components/Pagination.jsx";
 
 export default function OfficeManagement() {
   const [offices, setOffices] = useState([]);
@@ -15,6 +16,7 @@ export default function OfficeManagement() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const loadOffices = () => {
     setIsLoading(true);
@@ -34,6 +36,11 @@ export default function OfficeManagement() {
       : offices;
     return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }, [offices, search]);
+
+  // Back to page 1 when the search changes; stay in range after a delete.
+  useEffect(() => setPage(1), [search]);
+  const lastPage = Math.max(1, Math.ceil(visibleOffices.length / 20));
+  const shownPage = Math.min(page, lastPage);
 
   const handleConfirmDelete = async () => {
     if (!pendingDeleteOffice) return;
@@ -120,7 +127,7 @@ export default function OfficeManagement() {
                 </td>
               </tr>
             ) : (
-              visibleOffices.map((office) => (
+              pageSlice(visibleOffices, shownPage).map((office) => (
                 <tr
                   key={office.office_id}
                   className="border-b border-gray-50 text-navy transition-colors last:border-0 hover:bg-gray-50/80"
@@ -174,6 +181,7 @@ export default function OfficeManagement() {
           </tbody>
         </table>
         </ScrollTable>
+        <Pagination page={shownPage} count={visibleOffices.length} onPageChange={setPage} />
       </div>
 
       {isModalOpen && (

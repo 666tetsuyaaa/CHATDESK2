@@ -32,20 +32,21 @@ class DashboardCountsTests(BaseAPITestCase):
     def test_super_admin_sees_all_ticket_counts(self):
         admin = self.client_for(self.make_user("admin@example.com", role=User.Role.SUPERADMIN))
         data = admin.get("/api/v1/tickets/counts/").data
-        self.assertEqual(data, {"staff": 4, "pending": 3, "resolved": 1, "ai": 1, "overdue": 1})
+        self.assertEqual(data, {"staff": 4, "pending": 3, "resolved": 1, "ai": 1, "overdue": 1, "open": 3, "all_resolved": 2})
 
     def test_counts_match_the_ticket_lists(self):
         admin = self.client_for(self.make_user("admin@example.com", role=User.Role.SUPERADMIN))
         counts = admin.get("/api/v1/tickets/counts/").data
         for key, params in (("staff", {"source": "staff"}), ("pending", {"source": "staff", "status": "pending"}),
                             ("resolved", {"source": "staff", "status": "resolved"}), ("ai", {"source": "ai"}),
-                            ("overdue", {"overdue": "true"})):
+                            ("overdue", {"overdue": "true"}), ("open", {"status": "open"}),
+                            ("all_resolved", {"status": "resolved"})):
             self.assertEqual(admin.get("/api/v1/tickets/", params).data["count"], counts[key], key)
 
     def test_office_admin_counts_only_their_office(self):
         office_admin = self.client_for(self.make_user("osa@example.com", role=User.Role.OFFICE_ADMIN, office=self.osa))
         self.assertEqual(office_admin.get("/api/v1/tickets/counts/").data,
-                         {"staff": 3, "pending": 2, "resolved": 1, "ai": 1, "overdue": 1})
+                         {"staff": 3, "pending": 2, "resolved": 1, "ai": 1, "overdue": 1, "open": 2, "all_resolved": 2})
         self.assertEqual(office_admin.get("/api/v1/faqs/categories/").data,
                          [{"category": "Enrollment", "count": 1}, {"category": "Scholarship", "count": 1}])
 
@@ -58,3 +59,31 @@ class DashboardCountsTests(BaseAPITestCase):
         student = self.client_for(self.make_user("other@example.com"))
         self.assertEqual(student.get("/api/v1/tickets/counts/").status_code, 403)
         self.assertEqual(student.get("/api/v1/faqs/categories/").status_code, 403)
+
+
+class TicketQueueTests(BaseAPITestCase):
+    """Open tickets first in, first out; who answered each ticket."""
+
+    def setUp(self):
+        super().setUp()
+        self.osa = Office.objects.create(name="Test Student Affairs", code="TSA")
+        student = self.make_user("student@example.com")
+        now = timezone.now()
+        self.old = make_ticket(student, self.osa, status=Ticket.Status.PENDING)
+        self.active = make_ticket(student, self.osa, status=Ticket.Status.ACTIVE)
+        self.new = make_ticket(student, self.osa, status=Ticket.Status.PENDING)
+        self.ai = make_ticket(student, self.osa, status=Ticket.Status.RESOLVED, is_ai_resolved=True, resolved_at=now)
+        self.staff = make_ticket(student, self.osa, status=Ticket.Status.RESOLVED, resolved_at=now)
+        for i, t in enumerate([self.old, self.active, self.new, self.ai, self.staff]):
+            Ticket.objects.filter(pk=t.pk).update(created_at=now - timedelta(days=10 - i))
+        self.admin = self.client_for(self.make_user("admin@example.com", role=User.Role.SUPERADMIN))
+
+    def test_open_tickets_oldest_first(self):
+        rows = self.admin.get("/api/v1/tickets/", {"status": "open", "ordering": "oldest"}).data["results"]
+        self.assertEqual([r["ticket_id"] for r in rows], [self.old.pk, self.active.pk, self.new.pk])
+
+    def test_resolved_newest_first_and_who_answered(self):
+        rows = self.admin.get("/api/v1/tickets/", {"status": "resolved"}).data["results"]
+        self.assertEqual([(r["ticket_id"], r["answered_by"]) for r in rows], [(self.staff.pk, "staff"), (self.ai.pk, "chatdesk")])
+        pending = self.admin.get(f"/api/v1/tickets/{self.old.pk}/").data
+        self.assertIsNone(pending["answered_by"])

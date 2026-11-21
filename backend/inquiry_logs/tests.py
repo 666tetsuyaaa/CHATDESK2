@@ -635,7 +635,7 @@ class OfficeSuggestionTests(BaseAPITestCase):
 
     def test_the_ai_can_spot_an_office_question_too(self):
         fake = FakeOpenAI({"message_type": "office_overview", "office_code": "GCS"})
-        response = self.ask("ano ginagawa ng guidance office ninyo?", fake)
+        response = self.ask("curious lang ko unsa may matabang sa guidance department", fake)
         self.assertEqual(fake.calls, 1)
         self.assertEqual(response.data["detected_intent"], "office_suggestions")
         self.assertIn("Guidance & Counseling Services", response.data["reply"])
@@ -648,3 +648,68 @@ class OfficeSuggestionTests(BaseAPITestCase):
     def test_an_office_without_faqs_asks_to_clarify(self):
         response = self.ask("Library", FakeOpenAI({}))
         self.assertEqual(response.data["detected_intent"], "needs_clarification")
+
+
+class SchoolCalendarTests(BaseAPITestCase):
+    """"When are finals?" is answered from the Phases page."""
+
+    def setUp(self):
+        super().setUp()
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from phases.models import SchoolPhase
+
+        self.client = self.client_for(self.make_user("student@example.com"))
+        Faq.objects.create(intent_keyword="enroll_steps", question_text="How do I enroll?",
+                           answer_content="Follow the enrollment steps on the portal.", category="Enrollment")
+        today = timezone.localdate()
+        self.finals = SchoolPhase.objects.create(
+            name="Final Examinations", start_date=today + timedelta(days=10), end_date=today + timedelta(days=14),
+            guidance_message="Settle your clearance first.", suggested_questions=["How do I get my exam permit?"],
+        )
+        self.enrollment = SchoolPhase.objects.create(
+            name="Enrollment", start_date=today - timedelta(days=2), end_date=today + timedelta(days=3),
+        )
+        self.midterms = SchoolPhase.objects.create(
+            name="Midterm Examinations", start_date=today - timedelta(days=40), end_date=today - timedelta(days=36),
+        )
+        self.old = SchoolPhase.objects.create(
+            name="Last Year Finals", start_date=today - timedelta(days=400), end_date=today - timedelta(days=396),
+        )
+
+    def ask(self, message, fake):
+        with mock.patch.object(services, "_client", fake):
+            return self.client.post(ASK, {"message": message, "history": []}, format="json")
+
+    def test_upcoming_period_is_answered_with_its_dates_and_message(self):
+        fake = FakeOpenAI({"message_type": "school_calendar", "phase_id": str(self.finals.phase_id)})
+        data = self.ask("kailan ang finals?", fake).data
+        self.assertEqual(data["detected_intent"], "school_calendar")
+        self.assertTrue(data["reply"].startswith("Final Examinations is from "))
+        self.assertIn("Settle your clearance first.", data["reply"])
+        self.assertEqual(data["suggested_questions"], ["How do I get my exam permit?"])
+        self.assertFalse(data["is_answer"])
+        self.assertFalse(Ticket.objects.exists())
+
+    def test_tense_follows_today(self):
+        now = self.ask("enrollment?", FakeOpenAI({"message_type": "school_calendar", "phase_id": str(self.enrollment.phase_id)})).data
+        self.assertTrue(now["reply"].startswith("Enrollment is happening now, until "))
+        past = self.ask("when were midterms?", FakeOpenAI({"message_type": "school_calendar", "phase_id": str(self.midterms.phase_id)})).data
+        self.assertTrue(past["reply"].startswith("Midterm Examinations was from "))
+
+    def test_the_classifier_sees_recent_and_upcoming_periods_only(self):
+        fake = FakeOpenAI({"message_type": "school_calendar", "phase_id": str(self.finals.phase_id)})
+        self.ask("when are finals?", fake)
+        prompt = fake.requests[0]["messages"][0]["content"]
+        self.assertIn(f"- {self.finals.phase_id}: Final Examinations, ", prompt)
+        self.assertIn("Midterm Examinations", prompt)
+        self.assertNotIn("Last Year Finals", prompt)
+        schema = fake.requests[0]["response_format"]["json_schema"]["schema"]["properties"]["questions"]["items"]
+        self.assertIn("school_calendar", schema["properties"]["message_type"]["enum"])
+        self.assertIn("office_overview", schema["properties"]["message_type"]["enum"])
+
+    def test_an_unknown_period_goes_to_staff(self):
+        data = self.ask("when is the foundation day?", FakeOpenAI({"message_type": "school_calendar", "phase_id": "99999"})).data
+        self.assertEqual(data["detected_intent"], ESCALATED_INTENT)
