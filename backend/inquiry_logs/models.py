@@ -18,12 +18,15 @@ STAFF_REQUEST_INTENT = "asked_for_staff"
 # "I have a question about OSA" / "Registrar?" - answered with that office's
 # most-asked FAQ questions as buttons.
 OFFICE_SUGGEST_INTENT = "office_suggestions"
+# "When are finals?" - answered from the school calendar (the Phases page).
+# A real inquiry with a real answer, but not an FAQ's, so it can't be rated.
+CALENDAR_INTENT = "school_calendar"
 # Small talk and housekeeping - not real inquiries for analytics purposes.
 NON_INQUIRY_INTENTS = (
     CONVERSATIONAL_INTENT, CLARIFICATION_INTENT, OFF_TOPIC_INTENT, UNCLEAR_INTENT,
     ACCOUNT_INFO_INTENT, STAFF_REQUEST_INTENT, OFFICE_SUGGEST_INTENT,
 )
-SYSTEM_INTENTS = (ESCALATED_INTENT, DUPLICATE_TICKET_INTENT, *NON_INQUIRY_INTENTS)
+SYSTEM_INTENTS = (ESCALATED_INTENT, DUPLICATE_TICKET_INTENT, CALENDAR_INTENT, *NON_INQUIRY_INTENTS)
 
 
 class InquiryLog(models.Model):

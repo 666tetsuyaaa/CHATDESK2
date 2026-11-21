@@ -5,6 +5,7 @@ from users.colleges import DELETED_STUDENT, college_for_course
 
 from .models import (
     ACCOUNT_INFO_INTENT,
+    CALENDAR_INTENT,
     CLARIFICATION_INTENT,
     CONVERSATIONAL_INTENT,
     DUPLICATE_TICKET_INTENT,
@@ -28,6 +29,7 @@ INTENT_LABELS = {
     ACCOUNT_INFO_INTENT: "Asked about their account",
     STAFF_REQUEST_INTENT: "Asked for staff (pointed to Still need help)",
     OFFICE_SUGGEST_INTENT: "Asked about an office (shown its common questions)",
+    CALENDAR_INTENT: "Answered from the school calendar",
 }
 
 

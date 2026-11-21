@@ -86,6 +86,7 @@ class FakeOpenAI:
                 "duplicate_of_ticket_id": None,
                 "ticket_title": "Test Concern",
                 "office_code": None,
+                "phase_id": None,
                 **question,
             }
             for question in questions

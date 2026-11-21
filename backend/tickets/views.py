@@ -30,6 +30,8 @@ from .serializers import (
 )
 
 UNASSIGNED = "unassigned"
+# Waiting on staff: not answered yet, or the staff asked the student something.
+OPEN_STATUSES = (Ticket.Status.PENDING, Ticket.Status.ACTIVE)
 
 
 def annotate_message_info(qs):
@@ -57,11 +59,15 @@ def visible_tickets(user):
 
 
 def apply_ticket_filters(qs, params, allow_office_filter):
-    """?status=, ?category=, ?source=staff|ai, ?college=, ?overdue=true,
-    ?search= (title, question or ticket code) and - for Super Admin only -
-    ?office=<id> or ?office=unassigned."""
-    if params.get("status"):
-        qs = qs.filter(status=params["status"])
+    """?status= (or ?status=open: pending + active, waiting on staff),
+    ?category=, ?source=staff|ai, ?college=, ?overdue=true, ?search= (title,
+    question or ticket code), ?ordering=oldest (first in, first out) and -
+    for Super Admin only - ?office=<id> or ?office=unassigned."""
+    status = params.get("status")
+    if status == "open":
+        qs = qs.filter(status__in=OPEN_STATUSES, is_ai_resolved=False)
+    elif status:
+        qs = qs.filter(status=status)
     if params.get("category"):
         qs = qs.filter(subject_category=params["category"])
     source = params.get("source")
@@ -82,6 +88,8 @@ def apply_ticket_filters(qs, params, allow_office_filter):
             | Q(title__icontains=search)
             | Q(ticket_code__icontains=search.strip())
         )
+    if params.get("ordering") == "oldest":
+        qs = qs.order_by("created_at", "ticket_id")
     return qs
 
 
@@ -135,8 +143,9 @@ class TicketListCreateView(generics.ListCreateAPIView):
 class TicketCountsView(APIView):
     """GET /api/v1/tickets/counts/ - superadmin or office_admin. The Tickets
     page's tile numbers in one request (it used to fetch five ticket lists
-    just to read their counts): staff tickets (all, pending, resolved),
-    ChatDesk answers, and overdue. Same office scoping as the list."""
+    just to read their counts): open (waiting on staff: pending + active),
+    all_resolved (by staff or ChatDesk), staff tickets (all, pending,
+    resolved), ChatDesk answers, and overdue. Same office scoping as the list."""
 
     permission_classes = [IsOfficeStaff]
 
@@ -148,6 +157,8 @@ class TicketCountsView(APIView):
             resolved=Count("pk", filter=staff & Q(status=Ticket.Status.RESOLVED)),
             ai=Count("pk", filter=Q(is_ai_resolved=True)),
             overdue=Count("pk", filter=overdue_filter()),
+            open=Count("pk", filter=staff & Q(status__in=OPEN_STATUSES)),
+            all_resolved=Count("pk", filter=Q(status=Ticket.Status.RESOLVED)),
         )
         return Response(counts)
 

@@ -19,11 +19,24 @@ function displayIssue(issueDescription) {
   return match ? match[1] : issueDescription;
 }
 
-const SOURCE_OPTIONS = [
-  { value: "staff", label: "Needs staff" },
-  { value: "ai", label: "Answered by ChatDesk" },
-  { value: "all", label: "All tickets" },
+// What the list shows. Pending = waiting on staff (pending or active),
+// oldest first so the longest wait is answered first.
+const VIEW_OPTIONS = [
+  { value: "open", label: "Pending", params: { status: "open", ordering: "oldest" } },
+  { value: "resolved", label: "Resolved (all)", params: { status: "resolved" } },
+  { value: "resolved_staff", label: "Resolved by staff", params: { status: "resolved", source: "staff" } },
+  { value: "resolved_ai", label: "Resolved by ChatDesk", params: { status: "resolved", source: "ai" } },
+  { value: "all", label: "All tickets", params: {} },
 ];
+const viewParams = (view) => (VIEW_OPTIONS.find((o) => o.value === view) ?? VIEW_OPTIONS[0]).params;
+
+// "Answered by ChatDesk · Nov 20, 2026, 9:10 PM" - who gave the answer the
+// student has now, and when.
+function answeredText(ticket) {
+  if (!ticket.answered_by || !ticket.resolved_at) return null;
+  const who = ticket.answered_by === "chatdesk" ? "ChatDesk" : ticket.office_name ? `${ticket.office_name} staff` : "staff";
+  return `Answered by ${who} · ${formatManila(ticket.resolved_at)}`;
+}
 
 const REPLY_MODES = [
   { value: "answer", label: "Answer & resolve" },
@@ -38,10 +51,8 @@ export default function TicketManagement() {
   const isOfficeAdmin = currentUser?.role === "office_admin";
   const [tickets, setTickets] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [allCount, setAllCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [resolvedCount, setResolvedCount] = useState(0);
-  const [aiCount, setAiCount] = useState(0);
   const [overdueCount, setOverdueCount] = useState(0);
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [offices, setOffices] = useState([]);
@@ -52,12 +63,13 @@ export default function TicketManagement() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [officeFilter, setOfficeFilter] = useState("All");
-  const [sourceFilter, setSourceFilter] = useState("staff");
-  const [statusFilter, setStatusFilter] = useState("All");
+  const [view, setView] = useState("open");
   const [page, setPage] = useState(1);
   const [expandedTicketId, setExpandedTicketId] = useState(null);
   const [answerDraft, setAnswerDraft] = useState("");
   const [categoryDraft, setCategoryDraft] = useState("");
+  const [officeDraft, setOfficeDraft] = useState("");
+  const [notice, setNotice] = useState("");
   const [rowErrors, setRowErrors] = useState({});
   const [isSending, setIsSending] = useState(false);
   const [isAssigningOffice, setIsAssigningOffice] = useState(false);
@@ -74,8 +86,7 @@ export default function TicketManagement() {
       search: debouncedSearch || undefined,
       category: categoryFilter === "All" ? undefined : categoryFilter,
       office: officeFilter === "All" ? undefined : officeFilter,
-      source: sourceFilter === "all" ? undefined : sourceFilter,
-      status: statusFilter === "All" ? undefined : statusFilter,
+      ...viewParams(view),
       overdue: overdueOnly ? "true" : undefined,
     })
       .then((res) => {
@@ -107,10 +118,8 @@ export default function TicketManagement() {
   const loadCounts = () => {
     getTicketCounts()
       .then(({ data }) => {
-        setAllCount(data.staff);
-        setPendingCount(data.pending);
-        setResolvedCount(data.resolved);
-        setAiCount(data.ai);
+        setPendingCount(data.open);
+        setResolvedCount(data.all_resolved);
         setOverdueCount(data.overdue);
       })
       .catch(() => {});
@@ -124,12 +133,18 @@ export default function TicketManagement() {
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, statusFilter, categoryFilter, officeFilter, sourceFilter, overdueOnly]);
+  }, [debouncedSearch, view, categoryFilter, officeFilter, overdueOnly]);
 
   useEffect(() => {
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, statusFilter, categoryFilter, officeFilter, sourceFilter, overdueOnly]);
+  }, [page, debouncedSearch, view, categoryFilter, officeFilter, overdueOnly]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeout = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timeout);
+  }, [notice]);
 
   useEffect(() => {
     loadCounts();
@@ -147,6 +162,7 @@ export default function TicketManagement() {
     setExpandedTicketId(ticket.ticket_id);
     setAnswerDraft(ticket.is_ai_resolved ? "" : ticket.resolution ?? "");
     setCategoryDraft(ticket.subject_category);
+    setOfficeDraft(ticket.office == null ? "" : String(ticket.office));
     setReplyMode("answer");
     loadThread(ticket.ticket_id);
   };
@@ -239,7 +255,10 @@ export default function TicketManagement() {
     setIsAssigningOffice(true);
     try {
       await updateTicket(ticketId, { office: officeId || null });
+      const office = offices.find((o) => String(o.office_id) === String(officeId));
+      setNotice(office ? `Ticket moved to ${office.name}.` : "Ticket is now unassigned.");
       loadTickets();
+      loadCounts();
     } catch (err) {
       const { general } = serverErrors(err, "Could not route this ticket.");
       setRowErrors((prev) => ({ ...prev, general }));
@@ -248,44 +267,21 @@ export default function TicketManagement() {
     }
   };
 
-  const handleStatTileClick = (status) => {
-    setSourceFilter("staff");
-    setStatusFilter((prev) => (prev === status ? "All" : status));
-  };
-
-  const handleAiTileClick = () => {
-    setStatusFilter("All");
-    setSourceFilter((prev) => (prev === "ai" ? "staff" : "ai"));
-  };
+  // Clicking the Resolved tile again goes back to Pending.
+  const handleStatTileClick = (next) => setView((prev) => (prev === next && next !== "open" ? "open" : next));
 
   if (isLoading && tickets.length === 0 && !error) return <LoadingState label="Loading tickets..." />;
   if (error) return <ErrorState message={error} onRetry={() => { setError(null); loadTickets(); }} />;
 
   return (
     <section>
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-        <StatTile
-          label="Staff Tickets"
-          value={allCount}
-          accentClass="bg-navy/10 text-navy"
-          isActive={sourceFilter === "staff" && statusFilter === "All"}
-          onClick={() => handleStatTileClick("All")}
-          icon={
-            <path
-              d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6V7Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          }
-        />
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4">
         <StatTile
           label="Pending"
           value={pendingCount}
           accentClass="bg-status-pending/15 text-status-pending"
-          isActive={sourceFilter === "staff" && statusFilter === "pending"}
-          onClick={() => handleStatTileClick("pending")}
+          isActive={view === "open"}
+          onClick={() => handleStatTileClick("open")}
           icon={
             <path
               d="M12 8v4l3 3M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z"
@@ -300,29 +296,13 @@ export default function TicketManagement() {
           label="Resolved"
           value={resolvedCount}
           accentClass="bg-status-resolved/15 text-status-resolved"
-          isActive={sourceFilter === "staff" && statusFilter === "resolved"}
+          isActive={view.startsWith("resolved")}
           onClick={() => handleStatTileClick("resolved")}
           icon={
             <path
               d="m20 6-11 11-5-5"
               stroke="currentColor"
               strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          }
-        />
-        <StatTile
-          label="Answered by ChatDesk"
-          value={aiCount}
-          accentClass="bg-gold/15 text-gold-ink"
-          isActive={sourceFilter === "ai"}
-          onClick={handleAiTileClick}
-          icon={
-            <path
-              d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -344,8 +324,8 @@ export default function TicketManagement() {
 
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
         <span className="mr-1 text-sm font-semibold text-navy">Filters</span>
-        <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Ticket source" className={SELECT_CLASS}>
-          {SOURCE_OPTIONS.map((option) => (
+        <select value={view} onChange={(e) => setView(e.target.value)} aria-label="Show" className={SELECT_CLASS}>
+          {VIEW_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -380,6 +360,12 @@ export default function TicketManagement() {
         </button>
       </div>
 
+      {notice && (
+        <p role="status" className="mb-3 rounded-xl border border-status-resolved/30 bg-status-resolved/10 px-4 py-2 text-sm font-medium text-navy">
+          {notice}
+        </p>
+      )}
+
       <div className="overflow-clip rounded-2xl border border-gray-200 bg-white shadow-sm">
         <ScrollTable>
           <table className="w-full min-w-[720px] text-left">
@@ -398,7 +384,7 @@ export default function TicketManagement() {
                   <td colSpan={5} className="px-5 py-14 text-center text-sm text-gray-500">
                     {overdueOnly
                       ? "No overdue tickets."
-                      : sourceFilter === "staff" && statusFilter === "pending"
+                      : view === "open"
                       ? "No pending tickets - the staff queue is clear."
                       : "No tickets match these filters."}
                   </td>
@@ -427,6 +413,9 @@ export default function TicketManagement() {
                               <> · {ticket.message_count} {ticket.message_count === 1 ? "message" : "messages"}</>
                             )}
                           </div>
+                          {answeredText(ticket) && (
+                            <div className="mt-0.5 text-xs font-medium text-status-resolved">{answeredText(ticket)}</div>
+                          )}
                         </td>
                         <td className="px-5 py-3.5">
                           <div className="max-w-[12rem] truncate text-sm" title={ticket.user_email ?? undefined}>
@@ -480,8 +469,14 @@ export default function TicketManagement() {
                                   <TimelineItem label="Moved to staff" value={formatManila(ticket.reopened_at)} />
                                 )}
                                 <TimelineItem
-                                  label={ticket.is_ai_resolved ? "Answered by ChatDesk" : "Resolved"}
-                                  value={ticket.resolved_at ? formatManila(ticket.resolved_at) : "Not yet"}
+                                  label={
+                                    ticket.answered_by === "chatdesk"
+                                      ? "Answered by ChatDesk"
+                                      : ticket.answered_by === "staff"
+                                        ? "Answered by staff"
+                                        : "Answered"
+                                  }
+                                  value={ticket.answered_by ? formatManila(ticket.resolved_at) : "Not yet"}
                                 />
                                 {!ticket.is_ai_resolved && ticket.resolved_at && (
                                   <TimelineItem label="Time to resolve" value={formatDuration(resolutionSeconds)} />
@@ -541,16 +536,36 @@ export default function TicketManagement() {
                                     </label>
                                     <select
                                       id={`office-${ticket.ticket_id}`}
-                                      value={ticket.office ?? ""}
+                                      value={officeDraft}
                                       disabled={isAssigningOffice}
-                                      onChange={(e) => handleAssignOffice(ticket.ticket_id, e.target.value)}
+                                      onChange={(e) => setOfficeDraft(e.target.value)}
                                       className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-navy focus:outline-none focus:ring-2 focus:ring-gold/40 disabled:opacity-50"
                                     >
                                       <option value="">Unassigned</option>
                                       {offices.map((o) => (
-                                        <option key={o.office_id} value={o.office_id}>{o.name}</option>
+                                        <option key={o.office_id} value={String(o.office_id)}>{o.name}</option>
                                       ))}
                                     </select>
+                                    {officeDraft !== (ticket.office == null ? "" : String(ticket.office)) && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleAssignOffice(ticket.ticket_id, officeDraft)}
+                                          disabled={isAssigningOffice}
+                                          className="rounded-full bg-gold px-4 py-1.5 text-sm font-semibold text-navy-dark transition-opacity hover:brightness-95 disabled:opacity-50"
+                                        >
+                                          {isAssigningOffice ? "Saving..." : "Save"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setOfficeDraft(ticket.office == null ? "" : String(ticket.office))}
+                                          disabled={isAssigningOffice}
+                                          className="text-sm font-medium text-gray-500 hover:text-navy"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>

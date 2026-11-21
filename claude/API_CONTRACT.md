@@ -244,7 +244,7 @@ DELETE,/api/v1/faqs/{faq_id}/,admin,Remove obsolete FAQ.
 # when "enrollment" exists); and not one of the chatbot's own outcome names
 # (unresolved_complex_query, duplicate_ticket, conversational,
 # needs_clarification, off_topic, unclear, account_info, asked_for_staff,
-# office_suggestions).
+# office_suggestions, school_calendar).
 # question_text: max 300. All
 # return 400 under the field name.
 
@@ -329,6 +329,11 @@ Response 201 (AI Failed, Ticket Escalation Triggered):
 #                           answer's ticket), no new ticket. Ticket requests inside a
 #                           question ("What is HIMS? Produce a ticket.") are ignored and
 #                           the question is answered normally.
+#   school_calendar       - asks when a period of the school year happens and it is one
+#                           of the Phases (recent or upcoming): reply "<Phase> is from
+#                           <start> to <end>." (or "is happening now, until ..." / "was
+#                           from ...") plus the phase's message; suggested_questions =
+#                           the phase's suggested questions. No ticket, not rated.
 #   office_suggestions    - the message only names an office or asks about it in general
 #                           ("I have a question about OSA", "Registrar", "ano ginagawa ng
 #                           Guidance?"), or is a bare "I have a question" with an office
@@ -425,11 +430,13 @@ DELETE /api/v1/chat/sessions/{id}/         - student only. 204 (also when alread
 ## Ticket Escalation
 ```text
 GET /api/v1/tickets/counts/ - superadmin or office_admin (same office scoping as the list).
-    { "staff": 4, "pending": 3, "resolved": 1, "ai": 1, "overdue": 1 }
+    { "staff": 4, "pending": 3, "resolved": 1, "ai": 1, "overdue": 1, "open": 3, "all_resolved": 2 }
 ```
 # The Tickets page tiles in one request: staff = staff tickets (any status),
 # pending/resolved = staff tickets with that status, ai = ChatDesk answers,
-# overdue = as ?overdue=true. Each equals the matching list's "count".
+# overdue = as ?overdue=true, open = waiting on staff (?status=open: pending +
+# active), all_resolved = resolved by staff or ChatDesk (?status=resolved) - the
+# Pending and Resolved tiles. Each equals the matching list's "count".
 
 {
   "ticket_id": 890,
@@ -454,8 +461,11 @@ GET /api/v1/tickets/counts/ - superadmin or office_admin (same office scoping as
   "is_overdue": false,
   "message_count": 2,
   "last_staff_message_at": "2026-06-15T11:02:00Z",
-  "chatbot_answer": null
+  "chatbot_answer": null,
+  "answered_by": "staff"
 }
+# answered_by: who gave the answer the student has now - "chatdesk", "staff",
+# or null while unanswered; the time is resolved_at.
 # ticket_code: office code + Manila date (MMDDYY) + that office's 3-digit
 # number for the day, e.g. OSA103126001 = OSA's first ticket on Oct 31, 2026.
 # "GEN" when the ticket has no office yet. Set once on creation and never
@@ -491,7 +501,7 @@ GET /api/v1/tickets/counts/ - superadmin or office_admin (same office scoping as
 # badge. None of these are on the original ERD.
 
 Method,Path,Roles,Notes
-GET,/api/v1/tickets/,admin,"List tickets. ?status=, ?category=, ?source=staff|ai (staff = needs/needed a person, ai = chatbot-answered), ?college=<key>, ?overdue=true, ?search= (title, question or ticket code), and (Super Admin) ?office=<id> or ?office=unassigned."
+GET,/api/v1/tickets/,admin,"List tickets. ?status= (or ?status=open: pending + active, not chatbot-answered), ?ordering=oldest (first in, first out), ?category=, ?source=staff|ai (staff = needs/needed a person, ai = chatbot-answered), ?college=<key>, ?overdue=true, ?search= (title, question or ticket code), and (Super Admin) ?office=<id> or ?office=unassigned."
 GET,/api/v1/tickets/,student,"Student's own tickets (staff and chatbot-answered). ?source=staff|ai."
 POST,/api/v1/tickets/,student,Manual ticket creation (if student bypasses AI).
 GET,/api/v1/tickets/{ticket_id}/,all,Detail view (students can only view their own).
